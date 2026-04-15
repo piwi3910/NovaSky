@@ -122,8 +122,20 @@ export function SettingsCamera() {
             try {
               const res = await fetch("/api/platesolve/calibrate", { method: "POST" });
               const data = await res.json();
-              if (data.error) { alert(data.error); }
-              else { alert("Calibration started. This may take a minute. Refresh the page to see results."); }
+              if (data.error) { alert(data.error); setCalibrating(false); return; }
+              // Poll for result
+              for (let i = 0; i < 30; i++) {
+                await new Promise(r => setTimeout(r, 3000));
+                const check = await fetch("/api/platesolve");
+                const cal = await check.json();
+                if (cal.solved) {
+                  setCalibration(cal);
+                  alert(`Calibration successful!\nNorth angle: ${cal.northAngle.toFixed(1)}°\nPixel scale: ${cal.pixelScale.toFixed(2)}"/px`);
+                  setCalibrating(false);
+                  return;
+                }
+              }
+              alert("Calibration failed — no star match found. Make sure it is night time with a clear sky and stars are visible.");
             } catch { alert("Failed to start calibration"); }
             setCalibrating(false);
           }}
