@@ -128,7 +128,7 @@ func main() {
 			Exposure float64 `json:"exposure"`
 			Gain     int     `json:"gain"`
 		}
-		json.Unmarshal(lastDrift.Value, &drift)
+		json.Unmarshal([]byte(lastDrift.Value), &drift)
 		ae.Resume(drift.Exposure, drift.Gain)
 	}
 
