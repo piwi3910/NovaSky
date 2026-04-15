@@ -169,24 +169,42 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 	}
 	logFn("Using W08 wide-field database")
 
-	// Raw Bayer FITS confuses ASTAP — debayer using GoCV and apply CLAHE
-	// for maximum star visibility. Save as JPEG which ASTAP also accepts.
 	solvePath := imagePath
 	solveFov := fullFov
 
 	if strings.HasSuffix(imagePath, ".fits") {
+		// Step 1: Debayer raw Bayer FITS using GoCV + CLAHE
 		debayeredPath := strings.TrimSuffix(imagePath, ".fits") + "_solve.jpg"
-		logFn("Debayering raw FITS with GoCV + CLAHE contrast enhancement...")
+		logFn("Step 1: Debayering raw FITS with GoCV + CLAHE...")
 
-		// Import processing package dynamically via the exported function
 		if DebayerFunc == nil {
-			logFn("WARNING: No debayer function registered — trying raw FITS")
+			logFn("WARNING: No debayer function registered")
 		} else if err := DebayerFunc(imagePath, debayeredPath); err != nil {
-			logFn(fmt.Sprintf("Warning: debayer failed, trying raw FITS: %v", err))
+			logFn(fmt.Sprintf("Warning: debayer failed: %v", err))
 		} else {
 			defer os.Remove(debayeredPath)
-			solvePath = debayeredPath
-			logFn("Debayered and enhanced successfully")
+			logFn("Debayered full frame successfully")
+
+			// Step 2: Crop center 50% to remove bright horizon
+			// This gives zenith-only region where ASTAP's background stats work correctly
+			cropSize := imageWidth / 2
+			solveFov = fullFov * float64(cropSize) / float64(imageWidth)
+			croppedPath := strings.TrimSuffix(imagePath, ".fits") + "_solve_crop.jpg"
+			cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
+
+			logFn(fmt.Sprintf("Step 2: Cropping center %dx%d (%.1f° FoV) — removes bright horizon", cropSize, cropSize, solveFov))
+
+			cmd := exec.Command("convert", debayeredPath,
+				"-gravity", "center", "-crop", cropGeom, "+repage",
+				croppedPath)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				logFn(fmt.Sprintf("Warning: crop failed, using full frame: %s", string(output)))
+				solvePath = debayeredPath
+			} else {
+				defer os.Remove(croppedPath)
+				solvePath = croppedPath
+				logFn("Cropped to zenith region")
+			}
 		}
 	}
 
