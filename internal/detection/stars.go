@@ -42,8 +42,8 @@ func DetectStars(img gocv.Mat, minBrightness float64) []Star {
 	if minBrightness > 0 && minBrightness < 255 {
 		gocv.Threshold(gray8, &thresh, float32(minBrightness), 255, gocv.ThresholdBinary)
 	} else {
-		// Adaptive: each pixel compared to mean of 31x31 neighborhood, must be 15 above
-		gocv.AdaptiveThreshold(gray8, &thresh, 255, gocv.AdaptiveThresholdMean, gocv.ThresholdBinary, 31, -15)
+		// Adaptive: each pixel compared to mean of 21x21 neighborhood, must be 8 above
+		gocv.AdaptiveThreshold(gray8, &thresh, 255, gocv.AdaptiveThresholdMean, gocv.ThresholdBinary, 21, -8)
 	}
 
 	// Find contours

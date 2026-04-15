@@ -176,8 +176,8 @@ func main() {
 
 							grayMat, err := gocv.NewMatFromBytes(grayH, grayW, gocv.MatTypeCV8UC1, grayPixels)
 							if err == nil {
-								// Apply CLAHE for optimal star detection contrast
-								clahe := gocv.NewCLAHEWithParams(4.0, image.Pt(8, 8))
+								// Apply CLAHE for optimal star detection contrast — high clip for maximum star pop
+								clahe := gocv.NewCLAHEWithParams(10.0, image.Pt(8, 8))
 								enhanced := gocv.NewMat()
 								clahe.Apply(grayMat, &enhanced)
 								clahe.Close()
