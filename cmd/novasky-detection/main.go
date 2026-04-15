@@ -142,24 +142,39 @@ func main() {
 					if detCfg.StarsEnabled {
 						pixels := fits.ReadPixels16(data, header)
 						if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
-							// Create 16-bit grayscale from raw Bayer (simple 2x2 average, no full debayer needed)
+							// Create grayscale from raw Bayer (2x2 average) with percentile stretch
 							w, h := header.NAXIS1, header.NAXIS2
-							grayPixels := make([]byte, (w/2)*(h/2))
+							grayW, grayH := w/2, h/2
+							gray16 := make([]uint16, grayW*grayH)
 							for r := 0; r < h-1; r += 2 {
 								for c := 0; c < w-1; c += 2 {
-									// Average 2x2 Bayer block → one grayscale pixel
 									v := (int(pixels[r*w+c]) + int(pixels[r*w+c+1]) +
 										int(pixels[(r+1)*w+c]) + int(pixels[(r+1)*w+c+1])) / 4
-									// Scale to 8-bit with simple stretch
-									v8 := v >> 8 // divide by 256
-									if v8 > 255 {
-										v8 = 255
-									}
-									grayPixels[(r/2)*(w/2)+(c/2)] = byte(v8)
+									gray16[(r/2)*grayW+(c/2)] = uint16(v)
 								}
 							}
+							// Percentile stretch: map 5th-99.9th percentile → 0-255
+							var samples []int
+							sStep := len(gray16) / 50000
+							if sStep < 1 { sStep = 1 }
+							for i := 0; i < len(gray16); i += sStep {
+								samples = append(samples, int(gray16[i]))
+							}
+							sort.Ints(samples)
+							lo := samples[len(samples)*5/100]
+							hi := samples[len(samples)*999/1000]
+							if hi <= lo { hi = lo + 100 }
+							pScale := 255.0 / float64(hi-lo)
 
-							grayMat, err := gocv.NewMatFromBytes(h/2, w/2, gocv.MatTypeCV8UC1, grayPixels)
+							grayPixels := make([]byte, grayW*grayH)
+							for i, v := range gray16 {
+								stretched := int(float64(int(v)-lo) * pScale)
+								if stretched < 0 { stretched = 0 }
+								if stretched > 255 { stretched = 255 }
+								grayPixels[i] = byte(stretched)
+							}
+
+							grayMat, err := gocv.NewMatFromBytes(grayH, grayW, gocv.MatTypeCV8UC1, grayPixels)
 							if err == nil {
 								// Apply CLAHE for optimal star detection contrast
 								clahe := gocv.NewCLAHEWithParams(4.0, image.Pt(8, 8))
