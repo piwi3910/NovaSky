@@ -83,13 +83,33 @@ type MaskConfig struct {
 func debayer(raw []uint16, width, height int, pattern string) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// Auto-detect Bayer pattern from actual pixel data.
-	// Instead of trusting the FITS header (which has ambiguous conventions),
-	// analyze the 2x2 superpixel means: Green channels will be brightest
-	// (2 green pixels per superpixel), and we identify R vs B by which
-	// non-green channel has lower mean (Red is typically lower in sky images,
-	// but we fall back to header hint if analysis is inconclusive).
-	redX, redY, blueX, blueY := detectBayerLayout(raw, width, height, pattern)
+	// Bayer pattern mapping: FITS BAYERPAT → Go debayer positions.
+	// Verified empirically by testing all 4 OpenCV BayerXX2RGB codes against
+	// actual camera data (ASI676MC). The correct mapping for FITS conventions:
+	//
+	// FITS BAYERPAT → OpenCV equivalent → Go positions
+	// RGGB → BayerGB2RGB → R at (0,1), B at (1,0)
+	// BGGR → BayerRG2RGB → R at (1,0), B at (0,1)
+	// GRBG → BayerGR2RGB → R at (1,1), B at (0,0)
+	// GBRG → BayerBG2RGB → R at (0,0), B at (1,1)
+	var redX, redY, blueX, blueY int
+	switch pattern {
+	case "RGGB":
+		redX, redY = 0, 1
+		blueX, blueY = 1, 0
+	case "BGGR":
+		redX, redY = 1, 0
+		blueX, blueY = 0, 1
+	case "GRBG":
+		redX, redY = 1, 1
+		blueX, blueY = 0, 0
+	case "GBRG":
+		redX, redY = 0, 0
+		blueX, blueY = 1, 1
+	default:
+		// Unknown pattern, try to detect from data (Green pair detection is reliable)
+		redX, redY, blueX, blueY = detectBayerLayout(raw, width, height, pattern)
+	}
 
 	isRed := func(x, y int) bool {
 		return x%2 == redX && y%2 == redY
