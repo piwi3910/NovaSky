@@ -160,52 +160,20 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 		hasW08 = true
 	}
 
-	// Crop center 25% — small enough that fisheye distortion is negligible (~3% at 40° FoV)
-	// and ASTAP can treat it as a flat/gnomonic projection.
-	// 888 pixels is enough resolution for star detection.
-	cropSize := imageWidth / 4
-	solveFov := fullFov * float64(cropSize) / float64(imageWidth)
+	// Use raw FITS directly with W08 — ASTAP handles 16-bit FITS natively
+	// and applies its own internal stretching for star detection.
+	// No cropping needed: ASTAP + W08 supports wide field, and we pass zenith hint.
+	solvePath := imagePath
+	solveFov := fullFov
 
-	// If no W08, crop smaller for D05
-	if !hasW08 && solveFov > 18 {
-		cropSize = int(18.0 / fullFov * float64(imageWidth))
-		if cropSize < 800 {
-			cropSize = 800
-		}
-		solveFov = fullFov * float64(cropSize) / float64(imageWidth)
-		logFn("W08 not found, using smaller crop for D05")
-	} else if hasW08 {
-		logFn("Using W08 wide-field star database")
+	if hasW08 {
+		logFn("Using W08 wide-field database — passing raw FITS directly to ASTAP")
+	} else {
+		logFn("W08 not found — plate solving requires W08 for all-sky cameras")
+		return nil, fmt.Errorf("W08 star database not installed at /opt/astap/")
 	}
 
-	logFn(fmt.Sprintf("Cropping center %dx%d pixels (zenith region, %.1f° FoV)", cropSize, cropSize, solveFov))
-
-	croppedPath := strings.TrimSuffix(imagePath, ".fits")
-	croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
-
-	// Crop center, then aggressively stretch for star visibility
-	// The JPEG may have minimal stretch — we need stars to pop for ASTAP
-	cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
-	cmd := exec.Command("convert", imagePath,
-		"-gravity", "center", "-crop", cropGeom, "+repage",
-		"-auto-level",                    // stretch full range
-		"-sigmoidal-contrast", "10,15%",  // boost faint stars hard
-		croppedPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		cmd = exec.Command("magick", imagePath,
-			"-gravity", "center", "-crop", cropGeom, "+repage",
-			"-sigmoidal-contrast", "5,30%",
-			croppedPath)
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return nil, fmt.Errorf("failed to crop image: %w\nOutput: %s", err, string(output))
-		}
-	}
-	defer os.Remove(croppedPath)
-	solvePath := croppedPath
-
-	logFn(fmt.Sprintf("Ready to solve: %s (%dx%d, %.1f° FoV — distortion negligible at this crop)", solvePath, cropSize, cropSize, solveFov))
+	logFn(fmt.Sprintf("Solving: %s (%.1f° FoV)", solvePath, solveFov))
 
 	// Calculate zenith position from observer location for search hint
 	// Zenith RA = Local Sidereal Time, Zenith Dec = Latitude

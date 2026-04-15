@@ -195,11 +195,8 @@ func main() {
 		pixelSize := 2.0
 		fov := platesolve.CalcFoV(optics.FocalLength, pixelSize, 3552)
 
-		// Use JPEG (debayered) if available, otherwise FITS
+		// Use raw FITS — ASTAP handles 16-bit FITS natively with better dynamic range than JPEG
 		imagePath := frame.FilePath
-		if frame.JpegPath != nil && *frame.JpegPath != "" {
-			imagePath = *frame.JpegPath
-		}
 
 		// Run plate solve in background with logging
 		go func() {
