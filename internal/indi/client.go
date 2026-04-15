@@ -49,6 +49,20 @@ func (c *Client) Connect(ctx context.Context, host string, port int) error {
 	}
 	c.conn = conn
 
+	// Reset state for fresh connection
+	c.mu.Lock()
+	c.devices = make(map[string]bool)
+	c.properties = make(map[string]map[string]float64)
+	c.connected = false
+	c.mu.Unlock()
+	// Drain stale channels
+	for len(c.blobCh) > 0 {
+		<-c.blobCh
+	}
+	for len(c.deviceCh) > 0 {
+		<-c.deviceCh
+	}
+
 	// Start reading in background
 	go c.readLoop()
 
