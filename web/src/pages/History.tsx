@@ -1,5 +1,6 @@
 import { Stack, Title, Table, Badge } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
+import { formatDate } from "../utils/format";
 
 interface HistoryResponse { history: Array<{ id: string; state: string; imagingQuality: string; reason: string | null; evaluatedAt: string }>; }
 const STATE_COLORS: Record<string, string> = { SAFE: "green", UNSAFE: "red", UNKNOWN: "yellow" };
@@ -14,7 +15,7 @@ export function History() {
         <Table.Tbody>
           {data?.history?.map((e) => (
             <Table.Tr key={e.id}>
-              <Table.Td>{new Date(e.evaluatedAt).toLocaleString()}</Table.Td>
+              <Table.Td>{formatDate(e.evaluatedAt)}</Table.Td>
               <Table.Td><Badge color={STATE_COLORS[e.state] ?? "gray"} variant="filled">{e.state}</Badge></Table.Td>
               <Table.Td><Badge variant="outline">{e.imagingQuality}</Badge></Table.Td>
               <Table.Td>{e.reason ?? "—"}</Table.Td>

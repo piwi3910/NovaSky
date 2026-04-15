@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Stack, Title, Table, Pagination, Group, Text } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
+import { formatDate } from "../utils/format";
 
 interface FramesResponse { frames: Array<{ id: string; capturedAt: string; exposureMs: number; gain: number; filePath: string }>; }
 
@@ -17,7 +18,7 @@ export function Frames() {
         <Table.Tbody>
           {data?.frames?.map((f) => (
             <Table.Tr key={f.id}>
-              <Table.Td>{new Date(f.capturedAt).toLocaleString()}</Table.Td>
+              <Table.Td>{formatDate(f.capturedAt)}</Table.Td>
               <Table.Td>{f.exposureMs.toFixed(3)} ms</Table.Td>
               <Table.Td>{f.gain}</Table.Td>
               <Table.Td><Text size="xs" c="dimmed">{f.filePath.split("/").pop()}</Text></Table.Td>
