@@ -159,6 +159,21 @@ Per profile:
 - Handles twilight transitions smoothly — exposure ramps up/down ahead of the curve instead of chasing it
 - Sunrise/sunset are predictable gradients, so trend prediction is highly effective here
 
+## Flow Control (Backpressure)
+
+Prevents the capture service from overwhelming downstream workers when processing can't keep up.
+
+- Ingest-camera monitors the `frames.processing` stream pending count (messages not yet acknowledged)
+- Thresholds:
+  - Queue depth < 2: capture at normal interval
+  - Queue depth 2-3: double the interval between captures
+  - Queue depth > 3: pause capture until queue drains below 2
+- Processing worker publishes its queue depth to Redis pub/sub (`novasky:backpressure`)
+- Ingest-camera subscribes and adjusts capture pacing in real-time
+- Dashboard shows backpressure status (normal / throttled / paused)
+- Prevents disk fill-up from unprocessed FITS frames
+- Same pattern applies to any downstream bottleneck (detection, export)
+
 ## Processing Worker
 
 Picks up raw FITS frames from `frames.processing` stream:
