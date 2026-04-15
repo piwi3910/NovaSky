@@ -283,18 +283,25 @@ func main() {
 	}
 }
 
-// computeMedianADU reads raw 16-bit pixel data from FITS and computes the median
+// computeMedianADU reads raw 16-bit pixel data from FITS and computes the median.
+// Handles BZERO/BSCALE for proper unsigned 16-bit interpretation.
 func computeMedianADU(fitsData []byte) float64 {
-	// FITS header is in 2880-byte blocks
-	// Find end of header (line with "END" followed by spaces)
+	// Parse BZERO from header (FITS with BITPIX=16 + BZERO=32768 = unsigned 16-bit)
+	var bzero float64
 	headerEnd := 0
 	for i := 0; i < len(fitsData)-80; i += 80 {
 		line := string(fitsData[i : i+80])
 		if len(line) >= 3 && line[:3] == "END" {
-			// Round up to next 2880-byte boundary
 			headerEnd = ((i/80 + 1) * 80)
 			headerEnd = ((headerEnd + 2879) / 2880) * 2880
 			break
+		}
+		key := ""
+		if len(line) >= 8 {
+			key = line[:8]
+		}
+		if key == "BZERO   " && len(line) > 10 && line[8] == '=' {
+			fmt.Sscanf(line[10:], "%f", &bzero)
 		}
 	}
 
@@ -304,7 +311,7 @@ func computeMedianADU(fitsData []byte) float64 {
 
 	pixelData := fitsData[headerEnd:]
 
-	// Read as 16-bit unsigned integers (big-endian in FITS)
+	// Read as 16-bit big-endian, apply BZERO for true unsigned value
 	nPixels := len(pixelData) / 2
 	if nPixels == 0 {
 		return 0
@@ -316,9 +323,14 @@ func computeMedianADU(fitsData []byte) float64 {
 		step = nPixels / 100000
 	}
 
-	values := make([]uint16, 0, nPixels/step)
+	values := make([]float64, 0, nPixels/step)
 	for i := 0; i < len(pixelData)-1; i += 2 * step {
-		val := binary.BigEndian.Uint16(pixelData[i : i+2])
+		raw := int16(binary.BigEndian.Uint16(pixelData[i : i+2]))
+		// Apply BZERO: physical_value = raw + BZERO
+		val := float64(raw) + bzero
+		if val < 0 {
+			val = 0
+		}
 		values = append(values, val)
 	}
 
@@ -328,6 +340,5 @@ func computeMedianADU(fitsData []byte) float64 {
 
 	// Sort and take median
 	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	median := values[len(values)/2]
-	return float64(median)
+	return values[len(values)/2]
 }
