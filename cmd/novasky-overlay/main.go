@@ -71,7 +71,33 @@ func main() {
 				var safety models.SafetyState
 				db.GetDB().Order("evaluated_at DESC").First(&safety)
 
-				// Build overlay metadata
+				// Latest sensor readings
+				var tempReading, humidityReading models.SensorReading
+				db.GetDB().Where("sensor_type = ?", "temperature").Order("recorded_at DESC").First(&tempReading)
+				db.GetDB().Where("sensor_type = ?", "humidity").Order("recorded_at DESC").First(&humidityReading)
+
+				// Latest analysis for SQM and cloud cover
+				var analysis models.AnalysisResult
+				db.GetDB().Where("frame_id = ?", frameID).First(&analysis)
+				if analysis.ID == "" {
+					db.GetDB().Order("analyzed_at DESC").First(&analysis)
+				}
+
+				// Compute Bortle from SQM
+				var sqmVal float64
+				var bortleClass int
+				if analysis.SQM != nil {
+					sqmVal = *analysis.SQM
+					bortleClass = astronomy.SQMToBortle(sqmVal)
+				}
+
+				// Median ADU
+				var aduVal float64
+				if frame.MedianADU != nil {
+					aduVal = *frame.MedianADU
+				}
+
+				// Build overlay metadata with text variables
 				overlayData := map[string]interface{}{
 					"timestamp": now.Format("02/01/2006 15:04:05"),
 					"moon": map[string]interface{}{
@@ -90,6 +116,20 @@ func main() {
 					"location": map[string]interface{}{
 						"lat": loc.Latitude,
 						"lon": loc.Longitude,
+					},
+					// Text variables for frontend rendering
+					"variables": map[string]interface{}{
+						"date":       now.Format("2006-01-02"),
+						"time":       now.Format("15:04:05"),
+						"exposure":   frame.ExposureMs,
+						"gain":       frame.Gain,
+						"adu":        aduVal,
+						"temp":       tempReading.Value,
+						"humidity":   humidityReading.Value,
+						"sqm":        sqmVal,
+						"bortle":     bortleClass,
+						"moon":       moonPhase,
+						"cloudcover": analysis.CloudCover * 100,
 					},
 				}
 

@@ -171,15 +171,54 @@ func main() {
 		})
 	})
 
-	// Devices (proxy to INDI — return from DB config for now)
+	// Devices — query INDI sidecar or return config fallback
 	app.Get("/api/devices", func(c *fiber.Ctx) error {
+		var sidecarURL string
+		cfg.Get("indi.sidecarUrl", &sidecarURL)
+
+		if sidecarURL != "" {
+			// Query INDI sidecar for device list
+			httpClient := &http.Client{Timeout: 5 * time.Second}
+			resp, err := httpClient.Get(sidecarURL + "/devices")
+			if err == nil {
+				defer resp.Body.Close()
+				var result interface{}
+				if json.NewDecoder(resp.Body).Decode(&result) == nil {
+					return c.JSON(fiber.Map{"devices": result, "source": "sidecar"})
+				}
+			}
+			// Sidecar unreachable — fall through to config
+		}
+
+		// Try connecting to INDI server directly
+		var indiHost string
+		var indiPort int
+		cfg.Get("indi.host", &indiHost)
+		cfg.Get("indi.port", &indiPort)
+
+		if indiHost != "" && indiPort > 0 {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", indiHost, indiPort), 3*time.Second)
+			if err == nil {
+				conn.Close()
+				// INDI server is reachable — use the configured device
+				var device string
+				cfg.Get("camera.device", &device)
+				devices := []string{}
+				if device != "" {
+					devices = append(devices, device)
+				}
+				return c.JSON(fiber.Map{"devices": devices, "source": "indi-server"})
+			}
+		}
+
+		// Fallback — return configured device if any
 		var device string
 		cfg.Get("camera.device", &device)
 		devices := []string{}
 		if device != "" {
 			devices = append(devices, device)
 		}
-		return c.JSON(fiber.Map{"devices": devices})
+		return c.JSON(fiber.Map{"devices": devices, "source": "config", "note": "INDI sidecar not configured or unreachable"})
 	})
 
 	// GPSD
@@ -194,19 +233,46 @@ func main() {
 		return c.JSON(fiber.Map{"status": "capture requested"})
 	})
 
-	// Disk usage
+	// Disk usage with retention info
 	app.Get("/api/disk", func(c *fiber.Ctx) error {
 		spoolDir := os.Getenv("FRAME_SPOOL_DIR")
 		if spoolDir == "" {
 			spoolDir = "/home/piwi/novasky-data/frames"
 		}
 		total, used, free := diskmanager.GetUsage(spoolDir)
-		return c.JSON(fiber.Map{
-			"totalGB": math.Round(total*10) / 10,
-			"usedGB":  math.Round(used*10) / 10,
-			"freeGB":  math.Round(free*10) / 10,
-			"path":    spoolDir,
-		})
+
+		// Retention config
+		var retentionDays int
+		cfg.Get("storage.retention.days", &retentionDays)
+		if retentionDays == 0 {
+			retentionDays = 30
+		}
+		var retentionMaxGB float64
+		cfg.Get("storage.retention.maxGB", &retentionMaxGB)
+		if retentionMaxGB == 0 {
+			retentionMaxGB = 50
+		}
+
+		// Frame file stats
+		oldest, newest, frameSizeGB, fileCount := diskmanager.DirStats(spoolDir)
+
+		result := fiber.Map{
+			"totalGB":    math.Round(total*10) / 10,
+			"usedGB":     math.Round(used*10) / 10,
+			"freeGB":     math.Round(free*10) / 10,
+			"path":       spoolDir,
+			"frameFiles": fileCount,
+			"frameSizeGB": math.Round(frameSizeGB*100) / 100,
+			"retention": fiber.Map{
+				"days":  retentionDays,
+				"maxGB": retentionMaxGB,
+			},
+		}
+		if fileCount > 0 {
+			result["oldestFrame"] = oldest.Format(time.RFC3339)
+			result["newestFrame"] = newest.Format(time.RFC3339)
+		}
+		return c.JSON(result)
 	})
 
 	// Public sharing page — simple read-only view
@@ -675,6 +741,21 @@ h1{margin:10px 0;font-size:1.5em}
 				"sqm":         analysis.SQM,
 			},
 		})
+	})
+
+	// Planet positions
+	app.Get("/api/planets", func(c *fiber.Ctx) error {
+		var loc struct {
+			Latitude  float64 `json:"latitude"`
+			Longitude float64 `json:"longitude"`
+		}
+		cfg.Get("location", &loc)
+		if loc.Latitude == 0 && loc.Longitude == 0 {
+			return c.JSON(fiber.Map{"error": "location not configured"})
+		}
+
+		planets := astronomy.PlanetPositions(time.Now(), loc.Latitude, loc.Longitude)
+		return c.JSON(fiber.Map{"planets": planets})
 	})
 
 	// WebSocket

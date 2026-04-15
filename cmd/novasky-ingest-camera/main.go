@@ -327,6 +327,20 @@ func main() {
 		// Periodic disk check (every 10 frames)
 		if frameCount%10 == 0 {
 			diskmanager.CheckAndClean(spoolDir, 5.0) // keep 5GB free minimum
+
+			// Retention policy cleanup
+			var retentionDays int
+			cfg.Get("storage.retention.days", &retentionDays)
+			if retentionDays == 0 {
+				retentionDays = 30
+			}
+			var retentionMaxGB float64
+			cfg.Get("storage.retention.maxGB", &retentionMaxGB)
+			if retentionMaxGB == 0 {
+				retentionMaxGB = 50
+			}
+			diskmanager.CleanByRetention(spoolDir, retentionDays)
+			diskmanager.CleanBySize(spoolDir, retentionMaxGB)
 		}
 		frameCount++
 
