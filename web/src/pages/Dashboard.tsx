@@ -49,6 +49,7 @@ export function Dashboard() {
 
       {fullscreen && frameId && hasJpeg && (
         <div
+          ref={(el) => { if (el) { el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2; el.scrollTop = (el.scrollHeight - el.clientHeight) / 2; } }}
           onClick={() => setFullscreen(false)}
           style={{
             position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
