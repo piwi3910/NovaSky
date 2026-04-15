@@ -216,7 +216,7 @@ func main() {
 			}
 			calLog("Image file found, cropping center region to reduce FoV...")
 
-			cal, err := platesolve.Calibrate(imagePath, fov, calLog)
+			cal, err := platesolve.Calibrate(imagePath, fov, 3552, calLog)
 			if err != nil {
 				calLog(fmt.Sprintf("ERROR: Plate solve failed: %v", err))
 				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)

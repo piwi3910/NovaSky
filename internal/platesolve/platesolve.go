@@ -98,43 +98,44 @@ func CalcPixelScale(wcs *WCS) float64 {
 	return math.Sqrt(wcs.CD1_1*wcs.CD1_1+wcs.CD2_1*wcs.CD2_1) * 3600.0
 }
 
-// CalibrateFunc is the signature for the log callback
+// LogFunc is the signature for the log callback
 type LogFunc func(msg string)
 
 // Calibrate runs plate solving and returns the camera orientation calibration.
-// It uses the JPEG (debayered) image and crops the center 20% to avoid fisheye
-// distortion and to fit within the D05 database FoV limit (<20°).
-// fullFov is the full-frame field of view in degrees.
-func Calibrate(imagePath string, fullFov float64, logFn LogFunc) (*Calibration, error) {
+// For fisheye all-sky cameras: crops a fixed 1000x1000 pixel region from the center
+// (near zenith, minimal distortion), calculates the FoV of that crop from the
+// pixel scale, and solves with D05 database.
+// fullFov is the full-frame field of view in degrees, imageWidth is pixels across.
+func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc) (*Calibration, error) {
 	if logFn == nil {
 		logFn = func(msg string) { log.Println(msg) }
 	}
-
-	// Crop ratio: use center 20% of the image
-	// This reduces FoV proportionally: cropFov = fullFov * 0.20
-	cropRatio := 0.20
-	cropFov := fullFov * cropRatio
-
-	// If crop FoV is still too large for D05, reduce further
-	if cropFov > 18 {
-		cropRatio = 18.0 / fullFov
-		cropFov = 18.0
+	if imageWidth <= 0 {
+		imageWidth = 3552
 	}
 
-	logFn(fmt.Sprintf("Full FoV: %.1f° → cropping center %.0f%% → crop FoV: %.1f°", fullFov, cropRatio*100, cropFov))
+	// For equidistant fisheye: pixel scale = fullFov / imageWidth (degrees per pixel)
+	// Crop a 1000x1000 region from center — large enough for star detection,
+	// small enough FoV for D05 database
+	cropSize := 1000
+	if cropSize > imageWidth/2 {
+		cropSize = imageWidth / 2
+	}
 
-	// Use ImageMagick/convert to crop center of the image
-	// This works on both FITS and JPEG
-	cropPercent := int(cropRatio * 100)
+	// FoV of the crop (equidistant projection: linear relationship)
+	cropFov := fullFov * float64(cropSize) / float64(imageWidth)
+
+	logFn(fmt.Sprintf("Full FoV: %.1f° across %d pixels", fullFov, imageWidth))
+	logFn(fmt.Sprintf("Cropping center %dx%d pixels → crop FoV: %.1f°", cropSize, cropSize, cropFov))
+
 	croppedPath := strings.TrimSuffix(imagePath, ".fits")
 	croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
 
-	// Use convert (ImageMagick) to crop center
-	cropGeom := fmt.Sprintf("%d%%x%d%%+0+0", cropPercent, cropPercent)
+	// Use ImageMagick to crop center region (fixed pixel size)
+	cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
 	cmd := exec.Command("convert", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Try with 'magick' (ImageMagick v7)
 		cmd = exec.Command("magick", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
 		output, err = cmd.CombinedOutput()
 		if err != nil {
@@ -143,8 +144,15 @@ func Calibrate(imagePath string, fullFov float64, logFn LogFunc) (*Calibration, 
 	}
 	defer os.Remove(croppedPath)
 
-	logFn(fmt.Sprintf("Cropped center to %s (%.1f° FoV)", croppedPath, cropFov))
-	logFn("Running ASTAP plate solver on cropped image...")
+	logFn(fmt.Sprintf("Cropped to %s (%dx%d, %.1f° FoV)", croppedPath, cropSize, cropSize, cropFov))
+
+	// If crop FoV > 10°, ASTAP may need to downsample less
+	// D05 handles up to ~10° well, up to ~20° with some luck
+	if cropFov > 20 {
+		logFn(fmt.Sprintf("WARNING: Crop FoV %.1f° is large for D05 database. Consider a longer focal length lens.", cropFov))
+	}
+
+	logFn("Running ASTAP plate solver...")
 
 	wcs, err := Solve(croppedPath, 180, cropFov)
 	if err != nil {
