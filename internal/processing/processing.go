@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/piwi3910/NovaSky/internal/fits"
@@ -65,7 +64,7 @@ func removeSkyglow(img *gocv.Mat) {
 // ProcessFrame debayers, white-balances, stretches, and saves a JPEG from a raw FITS file.
 // Uses OpenCV (via GoCV) for debayering — proven correct with indi-allsky mapping.
 // skyglow controls whether background gradient subtraction is applied after debayer.
-func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig, skyglow bool) (*ProcessResult, error) {
+func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig, skyglow bool, rotationDeg float64) (*ProcessResult, error) {
 	// Read FITS
 	rawData, err := os.ReadFile(fitsPath)
 	if err != nil {
@@ -138,6 +137,15 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig, skyglow 
 		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
 	}
 
+	// Rotate image so North is up (from calibration)
+	if rotationDeg != 0 {
+		center := image.Pt(out.Cols()/2, out.Rows()/2)
+		rotMat := gocv.GetRotationMatrix2D(center, -rotationDeg, 1.0) // negative = clockwise
+		defer rotMat.Close()
+		gocv.WarpAffineWithParams(out, &out, rotMat, image.Pt(out.Cols(), out.Rows()),
+			gocv.InterpolationLinear, gocv.BorderConstant, color.RGBA{0, 0, 0, 0})
+	}
+
 	// Apply mask
 	if maskCfg != nil && maskCfg.Enabled {
 		applyMaskCV(&out, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
@@ -159,92 +167,6 @@ func uint16ToBytes(data []uint16) []byte {
 		binary.LittleEndian.PutUint16(buf[i*2:], v)
 	}
 	return buf
-}
-
-// DebayerToGray reads a raw Bayer FITS, crops the center, debayers, converts to
-// grayscale with CLAHE enhancement, and saves as JPEG. Used for plate solving.
-// cropFraction controls how much of the center to keep (e.g. 0.5 = center 50%).
-func DebayerToGray(fitsPath string, outputPath string) error {
-	rawData, err := os.ReadFile(fitsPath)
-	if err != nil {
-		return err
-	}
-
-	header := fits.ParseHeader(rawData)
-	pixels := fits.ReadPixels16(rawData, header)
-	if len(pixels) == 0 {
-		return fmt.Errorf("no pixel data in FITS")
-	}
-
-	mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
-	if err != nil {
-		return fmt.Errorf("failed to create Mat: %w", err)
-	}
-	defer mat.Close()
-
-	// Step 1: CROP CENTER FIRST — remove horizon glow before any processing
-	// Use center 25% — small enough that fisheye distortion is negligible (~3%)
-	// so ASTAP's quad geometry matching works correctly
-	cropFrac := 0.25
-	cropW := int(float64(mat.Cols()) * cropFrac)
-	cropH := int(float64(mat.Rows()) * cropFrac)
-	x0 := (mat.Cols() - cropW) / 2
-	y0 := (mat.Rows() - cropH) / 2
-	cropped := mat.Region(image.Rect(x0, y0, x0+cropW, y0+cropH))
-	defer cropped.Close()
-
-	// Step 2: Debayer the cropped region
-	bayerPat := header.BayerPat
-	if bayerPat == "" {
-		bayerPat = "RGGB"
-	}
-	code, ok := cfaMap[bayerPat]
-	if !ok {
-		code = gocv.ColorBayerGBToBGR
-	}
-
-	rgb := gocv.NewMat()
-	defer rgb.Close()
-	gocv.CvtColor(cropped, &rgb, code)
-
-	// Step 3: Convert to grayscale
-	gray := gocv.NewMat()
-	defer gray.Close()
-	gocv.CvtColor(rgb, &gray, gocv.ColorBGRToGray)
-
-	// Step 4: Stretch to 8-bit keeping background DARK and stars BRIGHT
-	// Sample to find background level (median) and stretch above it
-	nPix := gray.Rows() * gray.Cols()
-	step := 1
-	if nPix > 100000 {
-		step = nPix / 100000
-	}
-	var samples []int
-	for r := 0; r < gray.Rows(); r += step {
-		for c := 0; c < gray.Cols(); c += step {
-			samples = append(samples, int(gray.GetShortAt(r, c))&0xFFFF)
-		}
-	}
-	sort.Ints(samples)
-	bg := float64(samples[len(samples)/2])            // median = background
-	hi := float64(samples[len(samples)*999/1000])      // 99.9th percentile = bright stars
-	if hi <= bg {
-		hi = bg + 1000
-	}
-	// Map: bg → 10 (dark gray, not black), hi → 250
-	// Everything below bg clips to near-black, stars stretch to bright
-	scale := 240.0 / (hi - bg)
-	offset := 10.0 - bg*scale
-
-	out := gocv.NewMat()
-	defer out.Close()
-	gray.ConvertToWithParams(&out, gocv.MatTypeCV8UC1, float32(scale), float32(offset))
-
-	// Save — no CLAHE, keep the natural contrast for ASTAP
-	if ok := gocv.IMWrite(outputPath, out); !ok {
-		return fmt.Errorf("failed to write %s", outputPath)
-	}
-	return nil
 }
 
 // applyAutoWB applies gray world white balance on a 16-bit 3-channel Mat

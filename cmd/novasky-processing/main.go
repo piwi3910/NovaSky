@@ -88,8 +88,19 @@ func main() {
 				var skyglow bool
 				cfg.Get("imaging.skyglow", &skyglow)
 
+				// Get rotation from calibration
+				var cal struct {
+					NorthAngle float64 `json:"northAngle"`
+					Solved     bool    `json:"solved"`
+				}
+				cfg.Get("camera.calibration", &cal)
+				rotation := 0.0
+				if cal.Solved {
+					rotation = cal.NorthAngle
+				}
+
 				// Process frame using GoCV/OpenCV debayer
-				result, err := processing.ProcessFrame(filePath, stretch, mask, skyglow)
+				result, err := processing.ProcessFrame(filePath, stretch, mask, skyglow, rotation)
 				if err != nil {
 					log.Printf("[processing] Failed to process %s: %v", frameID, err)
 					novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesProcessing, consumerGroup, msg.ID)
