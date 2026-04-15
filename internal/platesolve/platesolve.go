@@ -124,50 +124,54 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc)
 		hasW08 = true
 	}
 
-	solvePath := imagePath
-	solveFov := fullFov
+	// Always crop center region for plate solving:
+	// - Removes horizon/ground from the image (confuses star detection)
+	// - Zenith area has minimal fisheye distortion
+	// - Works with both W08 (wide) and D05 (narrow) databases
+	// Use 50% of image width — large enough for stars, excludes horizon
+	cropSize := imageWidth / 2
+	solveFov := fullFov * float64(cropSize) / float64(imageWidth)
 
-	if fullFov > 20 && !hasW08 {
-		// No W08 — crop center to reduce FoV for D05
-		cropSize := 1000
-		if cropSize > imageWidth/2 {
-			cropSize = imageWidth / 2
+	// If no W08, crop smaller for D05
+	if !hasW08 && solveFov > 18 {
+		cropSize = int(18.0 / fullFov * float64(imageWidth))
+		if cropSize < 800 {
+			cropSize = 800
 		}
 		solveFov = fullFov * float64(cropSize) / float64(imageWidth)
-
-		logFn(fmt.Sprintf("W08 database not found, cropping center %dx%d → %.1f° FoV for D05", cropSize, cropSize, solveFov))
-
-		croppedPath := strings.TrimSuffix(imagePath, ".fits")
-		croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
-
-		cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
-		cmd := exec.Command("convert", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			cmd = exec.Command("magick", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
-			output, err = cmd.CombinedOutput()
-			if err != nil {
-				return nil, fmt.Errorf("failed to crop image: %w\nOutput: %s", err, string(output))
-			}
-		}
-		defer os.Remove(croppedPath)
-		solvePath = croppedPath
+		logFn("W08 not found, using smaller crop for D05")
 	} else if hasW08 {
 		logFn("Using W08 wide-field star database")
 	}
 
-	// Auto-stretch the image to improve star visibility for ASTAP
-	stretchedPath := strings.TrimSuffix(solvePath, ".jpg") + "_stretched.jpg"
-	stretchCmd := exec.Command("convert", solvePath, "-normalize", "-contrast-stretch", "0.1%x0.1%", stretchedPath)
-	if out, err := stretchCmd.CombinedOutput(); err != nil {
-		logFn(fmt.Sprintf("Warning: auto-stretch failed (continuing with original): %s", string(out)))
-	} else {
-		logFn("Auto-stretched image for better star detection")
-		defer os.Remove(stretchedPath)
-		solvePath = stretchedPath
-	}
+	logFn(fmt.Sprintf("Cropping center %dx%d pixels (zenith region, %.1f° FoV)", cropSize, cropSize, solveFov))
 
-	logFn(fmt.Sprintf("Solving %s (%.1f° FoV)...", solvePath, solveFov))
+	croppedPath := strings.TrimSuffix(imagePath, ".fits")
+	croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
+
+	// Crop center, then gently stretch to improve star visibility
+	// -sigmoidal-contrast enhances faint stars without blowing out the image
+	cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
+	cmd := exec.Command("convert", imagePath,
+		"-gravity", "center", "-crop", cropGeom, "+repage",
+		"-sigmoidal-contrast", "5,30%",
+		croppedPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		cmd = exec.Command("magick", imagePath,
+			"-gravity", "center", "-crop", cropGeom, "+repage",
+			"-sigmoidal-contrast", "5,30%",
+			croppedPath)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("failed to crop image: %w\nOutput: %s", err, string(output))
+		}
+	}
+	defer os.Remove(croppedPath)
+	solvePath := croppedPath
+
+	logFn(fmt.Sprintf("Cropped and enhanced: %s (%dx%d, %.1f° FoV)", solvePath, cropSize, cropSize, solveFov))
+	logFn("Running ASTAP plate solver...")
 
 	wcs, err := Solve(solvePath, 180, solveFov)
 	if err != nil {
