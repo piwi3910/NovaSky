@@ -61,6 +61,108 @@ func removeSkyglow(img *gocv.Mat) {
 	imgF.ConvertTo(img, gocv.MatTypeCV16UC3)
 }
 
+// ProcessStackedFrames loads multiple FITS files, debayers each, stacks them (mean),
+// then processes the stacked result with stretch/mask/rotation.
+// The output JPEG path is based on the last FITS file in the list.
+func ProcessStackedFrames(fitsPaths []string, stretch string, maskCfg *MaskConfig, skyglow bool, rotationDeg float64) (*ProcessResult, error) {
+	if len(fitsPaths) == 0 {
+		return nil, fmt.Errorf("no FITS paths provided")
+	}
+	if len(fitsPaths) == 1 {
+		return ProcessFrame(fitsPaths[0], stretch, maskCfg, skyglow, rotationDeg)
+	}
+
+	// Load and debayer all frames
+	var mats []gocv.Mat
+	for _, fp := range fitsPaths {
+		rawData, err := os.ReadFile(fp)
+		if err != nil {
+			continue
+		}
+		header := fits.ParseHeader(rawData)
+		pixels := fits.ReadPixels16(rawData, header)
+		if len(pixels) == 0 {
+			continue
+		}
+		mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
+		if err != nil {
+			continue
+		}
+		// Debayer
+		bayerPat := header.BayerPat
+		if bayerPat == "" {
+			bayerPat = "RGGB"
+		}
+		code, ok := cfaMap[bayerPat]
+		if !ok {
+			code = gocv.ColorBayerGBToBGR
+		}
+		rgb := gocv.NewMat()
+		gocv.CvtColor(mat, &rgb, code)
+		mat.Close()
+		mats = append(mats, rgb)
+	}
+	if len(mats) == 0 {
+		return nil, fmt.Errorf("no valid frames to stack")
+	}
+	defer func() {
+		for _, m := range mats {
+			m.Close()
+		}
+	}()
+
+	// Stack
+	stacked := StackFrames(mats)
+	defer stacked.Close()
+
+	// Now process the stacked BGR 16-bit image (same pipeline as ProcessFrame after debayer)
+	rgb := stacked
+
+	if skyglow {
+		removeSkyglow(&rgb)
+	}
+	if rgb.Channels() == 3 {
+		applySCNR(&rgb)
+	}
+	applyNoiseReduction(&rgb, "off", 3)
+
+	out := gocv.NewMat()
+	defer out.Close()
+	switch stretch {
+	case "none":
+		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
+	case "linear":
+		applyLinearStretch(&rgb, &out)
+	case "auto":
+		applyAutoStretch(&rgb, &out)
+	case "adaptive":
+		applyAdaptiveStretch(&rgb, &out)
+	case "ghs":
+		applyGHSStretch(&rgb, &out, 2.0, 0.25, 0.0, 0.0)
+	default:
+		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
+	}
+
+	if rotationDeg != 0 {
+		center := image.Pt(out.Cols()/2, out.Rows()/2)
+		rotMat := gocv.GetRotationMatrix2D(center, -rotationDeg, 1.0)
+		defer rotMat.Close()
+		gocv.WarpAffineWithParams(out, &out, rotMat, image.Pt(out.Cols(), out.Rows()),
+			gocv.InterpolationLinear, gocv.BorderConstant, color.RGBA{0, 0, 0, 0})
+	}
+
+	if maskCfg != nil && maskCfg.Enabled {
+		applyMaskCV(&out, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
+	}
+
+	jpegPath := strings.TrimSuffix(fitsPaths[len(fitsPaths)-1], filepath.Ext(fitsPaths[len(fitsPaths)-1])) + ".jpg"
+	if ok := gocv.IMWriteWithParams(jpegPath, out, []int{gocv.IMWriteJpegQuality, 90}); !ok {
+		return nil, fmt.Errorf("failed to write JPEG: %s", jpegPath)
+	}
+
+	return &ProcessResult{JpegPath: jpegPath}, nil
+}
+
 // ProcessFrame debayers, white-balances, stretches, and saves a JPEG from a raw FITS file.
 // Uses OpenCV (via GoCV) for debayering — proven correct with indi-allsky mapping.
 // skyglow controls whether background gradient subtraction is applied after debayer.

@@ -13,6 +13,8 @@ export function SettingsImaging() {
   const [nightProfile, setNightProfile] = useState<ImagingProfile>({ gain: 300, minExposureMs: 1000, maxExposureMs: 30000, aduTarget: 30, stretch: "auto" });
   const [twilightAngle, setTwilightAngle] = useState(-6);
   const [transitionSpeed, setTransitionSpeed] = useState(25);
+  const [stackingEnabled, setStackingEnabled] = useState(false);
+  const [stackingCount, setStackingCount] = useState(5);
   const [saving, setSaving] = useState(false);
   const initialized = useRef(false);
 
@@ -24,6 +26,9 @@ export function SettingsImaging() {
       const tw = configData["imaging.twilight"] as any;
       if (tw?.sunAltitude !== undefined) setTwilightAngle(tw.sunAltitude);
       if (tw?.transitionSpeed !== undefined) setTransitionSpeed(tw.transitionSpeed);
+      const stack = (configData["imaging.stacking"] ?? {}) as any;
+      if (stack.enabled !== undefined) setStackingEnabled(stack.enabled);
+      if (stack.count) setStackingCount(stack.count);
     }
   }, [configData]);
 
@@ -37,6 +42,7 @@ export function SettingsImaging() {
       fetch("/api/config/imaging.day", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: dayProfile }) }),
       fetch("/api/config/imaging.night", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: nightProfile }) }),
       fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle, transitionSpeed } }) }),
+      fetch("/api/config/imaging.stacking", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { enabled: stackingEnabled, count: stackingCount } }) }),
     ]); setSaving(false);
   }
 
@@ -71,8 +77,15 @@ export function SettingsImaging() {
             <NumberInput label="Max Exposure (ms)" value={profile.maxExposureMs} onChange={v => updateField("maxExposureMs", Number(v))} min={1} max={120000} />
           </Group>
           <NumberInput label="ADU Target (%)" value={profile.aduTarget} onChange={v => updateField("aduTarget", Number(v))} min={1} max={100} suffix="%" />
-          <Select label="JPEG Stretch" data={[{ value: "none", label: "None" }, { value: "linear", label: "Linear" }, { value: "auto", label: "Auto (per-channel)" }]} value={profile.stretch ?? "none"} onChange={v => updateField("stretch", v ?? "none")} />
+          <Select label="JPEG Stretch" data={[{ value: "none", label: "None" }, { value: "linear", label: "Linear" }, { value: "auto", label: "Auto (per-channel)" }, { value: "adaptive", label: "Adaptive (MTF)" }, { value: "ghs", label: "GHS (Arcsinh)" }]} value={profile.stretch ?? "none"} onChange={v => updateField("stretch", v ?? "none")} />
         </Stack>
+      </Card>
+      <Card shadow="sm" padding="lg" withBorder>
+        <Text fw={500} mb="sm">Frame Stacking</Text>
+        <Switch label="Enable stacking" checked={stackingEnabled} onChange={e => setStackingEnabled(e.currentTarget.checked)} mb="sm" description="Stack multiple frames before processing — reduces noise, brings out faint stars" />
+        {stackingEnabled && (
+          <NumberInput label="Frames to stack" value={stackingCount} onChange={v => setStackingCount(Number(v))} min={2} max={20} description="Number of consecutive frames averaged together" />
+        )}
       </Card>
       <Button onClick={save} loading={saving} fullWidth>Save Imaging Settings</Button>
     </Stack>
