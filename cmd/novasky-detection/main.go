@@ -15,6 +15,8 @@ import (
 
 	"gocv.io/x/gocv"
 
+	"github.com/piwi3910/NovaSky/internal/astronomy"
+	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/detection"
 	"github.com/piwi3910/NovaSky/internal/fits"
@@ -34,6 +36,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
+
+	cfg := config.NewManager()
+	cfg.Subscribe(ctx)
 
 	novaskyRedis.StartHealthReporter(ctx, "detection")
 
@@ -101,9 +106,15 @@ func main() {
 				}
 				db.GetDB().Create(&result)
 
-				// Star detection (night frames only)
+				// Night frame analysis: stars, constellations, planets
 				if brightness < 0.2 {
 					header := fits.ParseHeader(data)
+					imageSize := header.NAXIS1
+					if imageSize <= 0 {
+						imageSize = 1304
+					}
+
+					// Star detection
 					pixels := fits.ReadPixels16(data, header)
 					if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
 						mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
@@ -119,6 +130,52 @@ func main() {
 								})
 								log.Printf("[detection] Found %d stars", len(stars))
 							}
+						}
+					}
+
+					// Constellation projection and planet positions
+					var loc struct {
+						Latitude  float64 `json:"latitude"`
+						Longitude float64 `json:"longitude"`
+					}
+					cfg.Get("location", &loc)
+					if loc.Latitude != 0 || loc.Longitude != 0 {
+						now := time.Now()
+						jd := float64(now.UTC().Unix())/86400.0 + 2440587.5
+						T := (jd - 2451545.0) / 36525.0
+						gmst := math.Mod(280.46061837+360.98564736629*(jd-2451545.0)+0.000387933*T*T, 360.0)
+						if gmst < 0 {
+							gmst += 360.0
+						}
+						lst := math.Mod(gmst+loc.Longitude, 360.0) / 15.0 // LST in hours
+
+						projected := detection.ProjectConstellations(lst, loc.Latitude, imageSize)
+						if len(projected) > 0 {
+							constJSON, _ := json.Marshal(projected)
+							db.GetDB().Create(&models.Detection{
+								FrameID: frameID,
+								Type:    "constellations",
+								Data:    constJSON,
+							})
+							log.Printf("[detection] Projected %d constellations", len(projected))
+						}
+
+						// Planet positions
+						planets := astronomy.PlanetPositions(now, loc.Latitude, loc.Longitude)
+						var visible []astronomy.PlanetPosition
+						for _, p := range planets {
+							if p.Visible {
+								visible = append(visible, p)
+							}
+						}
+						if len(visible) > 0 {
+							planetsJSON, _ := json.Marshal(visible)
+							db.GetDB().Create(&models.Detection{
+								FrameID: frameID,
+								Type:    "planets",
+								Data:    planetsJSON,
+							})
+							log.Printf("[detection] %d planets visible", len(visible))
 						}
 					}
 				}

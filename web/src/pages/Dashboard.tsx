@@ -1,5 +1,5 @@
 import { Grid, Card, Text, Title, Stack, Group, Badge } from "@mantine/core";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { PipelineView } from "../components/PipelineView";
@@ -13,6 +13,7 @@ interface StatusResponse {
 export function Dashboard() {
   const { data: status } = useApi<StatusResponse>("/api/status", 5000);
   const { data: cloudData } = useApi<Array<{time: string; value: number}>>("/api/charts/cloud-cover?hours=6", 30000);
+  const { data: exposureData } = useApi<Array<{time: string; exposure: number; gain: number}>>("/api/charts/exposure?hours=24", 30000);
   const { data: astroData } = useApi<any>("/api/astronomy", 60000);
   const { autoExposure } = useWebSocket();
 
@@ -54,6 +55,28 @@ export function Dashboard() {
               <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
               <Tooltip formatter={(v: number) => `${v.toFixed(0)}%`} labelFormatter={t => new Date(t).toLocaleString()} />
               <Line type="monotone" dataKey="value" stroke="#228be6" dot={false} strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <Text size="sm" c="dimmed">No data yet</Text>
+        )}
+      </Card>
+
+      <Card shadow="sm" padding="lg" withBorder>
+        <Text size="sm" c="dimmed" mb="sm">Exposure &amp; Gain (last 24 hours)</Text>
+        {exposureData && exposureData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={exposureData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+              <XAxis dataKey="time" tick={{ fontSize: 10 }} tickFormatter={t => new Date(t).toLocaleTimeString()} interval="preserveStartEnd" />
+              <YAxis yAxisId="left" tick={{ fontSize: 10 }} label={{ value: "Exposure (ms)", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: "Gain", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
+              <Tooltip
+                formatter={(v: number, name: string) => [name === "exposure" ? `${v.toFixed(1)} ms` : `${v}`, name === "exposure" ? "Exposure" : "Gain"]}
+                labelFormatter={t => new Date(t).toLocaleString()}
+              />
+              <Line yAxisId="left" type="monotone" dataKey="exposure" stroke="#fab005" dot={false} strokeWidth={2} name="exposure" />
+              <Line yAxisId="right" type="monotone" dataKey="gain" stroke="#40c057" dot={false} strokeWidth={2} name="gain" />
             </LineChart>
           </ResponsiveContainer>
         ) : (
