@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
@@ -68,6 +70,7 @@ func main() {
 					stretch = s
 				}
 
+				startTime := time.Now()
 				log.Printf("[processing] Processing frame %s: stretch=%s", frameID, stretch)
 
 				// Get mask config
@@ -120,7 +123,11 @@ func main() {
 				// Acknowledge message
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesProcessing, consumerGroup, msg.ID)
 
-				log.Printf("[processing] Frame %s processed → %s", frameID, result.JpegPath)
+				// Store processing latency in Redis for pipeline visualization
+				elapsed := time.Since(startTime)
+				novaskyRedis.Client.Set(ctx, "novasky:latency:processing", fmt.Sprintf("%.3f", elapsed.Seconds()), 0)
+
+				log.Printf("[processing] Frame %s processed in %.1fs → %s", frameID, elapsed.Seconds(), result.JpegPath)
 			}
 		}
 	}

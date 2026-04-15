@@ -239,19 +239,27 @@ func (e *Engine) Adjust(medianADU float64) {
 }
 
 // NeedsRapidCapture returns true when ADU is far off target (>20% error)
-// and we should skip the normal capture interval to converge faster
+// and we should skip the normal capture interval to converge faster.
+// Does NOT rapid-capture if at exposure limits (can't improve anyway).
 func (e *Engine) NeedsRapidCapture() bool {
 	if e.lastMedianADU <= 0 {
 		return true // No data yet, capture fast
 	}
 	profile := e.ActiveProfile()
+
+	// Already at limits — rapid capture won't help
+	if e.currentExposure <= profile.MinExposureMs || e.currentExposure >= profile.MaxExposureMs {
+		return false
+	}
+
 	targetPixel := (profile.ADUTarget / 100.0) * 65535.0
 	errorPct := math.Abs(e.lastMedianADU-targetPixel) / targetPixel * 100.0
 	return errorPct > 20.0
 }
 
-// IsConverged returns true when ADU is within the buffer zone of the target
-// Only converged frames should be sent to the processing pipeline
+// IsConverged returns true when ADU is within the buffer zone of the target,
+// OR when exposure is at min/max limits (best we can do physically).
+// Only converged frames should be sent to the processing pipeline.
 func (e *Engine) IsConverged() bool {
 	if e.lastMedianADU <= 0 {
 		return false
@@ -259,7 +267,18 @@ func (e *Engine) IsConverged() bool {
 	profile := e.ActiveProfile()
 	targetPixel := (profile.ADUTarget / 100.0) * 65535.0
 	errorPct := math.Abs(e.lastMedianADU-targetPixel) / targetPixel * 100.0
-	return errorPct <= e.bufferPct
+
+	// Within buffer zone — truly converged
+	if errorPct <= e.bufferPct {
+		return true
+	}
+
+	// At exposure limits — can't do better, accept it
+	if e.currentExposure <= profile.MinExposureMs || e.currentExposure >= profile.MaxExposureMs {
+		return true
+	}
+
+	return false
 }
 
 func (e *Engine) predictTrend() float64 {

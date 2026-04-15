@@ -213,21 +213,13 @@ func main() {
 			healthMap[s.Name] = s
 		}
 
-		// Latest frame timing for latency calculation
-		var latestFrame models.Frame
-		db.GetDB().Order("created_at DESC").First(&latestFrame)
-
-		var latestAnalysis models.AnalysisResult
-		db.GetDB().Order("analyzed_at DESC").First(&latestAnalysis)
-
-		// Calculate latencies (rough: time between records)
-		var captureLatency, processLatency, detectLatency float64
-		if latestFrame.ID != "" && latestFrame.JpegPath != nil {
-			// Processing latency: how old is the latest JPEG vs capture time
-			processLatency = time.Since(latestFrame.CapturedAt).Seconds()
+		// Read actual per-frame processing latencies from Redis (set by workers)
+		var processLatency, detectLatency float64
+		if val, err := novaskyRedis.Client.Get(ctx, "novasky:latency:processing").Float64(); err == nil {
+			processLatency = val
 		}
-		if latestAnalysis.ID != "" {
-			detectLatency = time.Since(latestAnalysis.AnalyzedAt).Seconds()
+		if val, err := novaskyRedis.Client.Get(ctx, "novasky:latency:detection").Float64(); err == nil {
+			detectLatency = val
 		}
 
 		type ServiceNode struct {
@@ -238,7 +230,7 @@ func main() {
 		}
 
 		pipeline := []ServiceNode{
-			{Name: "ingest-camera", Status: getStatus(healthMap, "ingest-camera"), QueueDepth: 0, Latency: captureLatency},
+			{Name: "ingest-camera", Status: getStatus(healthMap, "ingest-camera"), QueueDepth: 0, Latency: 0},
 			{Name: "processing", Status: getStatus(healthMap, "processing"), QueueDepth: qProcessing, Latency: processLatency},
 			{Name: "detection", Status: getStatus(healthMap, "detection"), QueueDepth: qDetection, Latency: detectLatency},
 			{Name: "policy", Status: getStatus(healthMap, "policy"), QueueDepth: qPolicy, Latency: 0},

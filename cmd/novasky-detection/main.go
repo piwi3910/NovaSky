@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"math"
 	"os"
 	"os/signal"
 	"sort"
 	"syscall"
+	"time"
 
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
@@ -54,6 +56,7 @@ func main() {
 					continue
 				}
 
+				startTime := time.Now()
 				brightness, cloudCover := analyzeFrame(data)
 				skyQuality := classifyQuality(cloudCover)
 
@@ -71,7 +74,10 @@ func main() {
 				})
 
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesDetection, consumerGroup, msg.ID)
-				log.Printf("[detection] Frame %s: cloud=%.0f%% sky=%s", frameID, cloudCover*100, skyQuality)
+
+				elapsed := time.Since(startTime)
+				novaskyRedis.Client.Set(ctx, "novasky:latency:detection", fmt.Sprintf("%.3f", elapsed.Seconds()), 0)
+				log.Printf("[detection] Frame %s: cloud=%.0f%% sky=%s (%.1fs)", frameID, cloudCover*100, skyQuality, elapsed.Seconds())
 			}
 		}
 	}
