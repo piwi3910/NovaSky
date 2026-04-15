@@ -28,14 +28,13 @@ type MaskConfig struct {
 	Enabled bool `json:"enabled"`
 }
 
-// Bayer pattern mapping following indi-allsky convention
-// https://github.com/aaronwmorris/indi-allsky
-// RGGB -> cv2.COLOR_BAYER_BG2BGR (OpenCV convention)
+// Bayer pattern mapping — verified against camera's own RGB24 output.
+// Tested all 4 OpenCV BayerXX codes; BayerGB matches camera RGB exactly for RGGB.
 var cfaMap = map[string]gocv.ColorConversionCode{
-	"RGGB": gocv.ColorBayerBGToBGR,
-	"GRBG": gocv.ColorBayerGBToBGR,
-	"BGGR": gocv.ColorBayerRGToBGR,
-	"GBRG": gocv.ColorBayerGRToBGR,
+	"RGGB": gocv.ColorBayerGBToBGR,
+	"GRBG": gocv.ColorBayerBGToBGR,
+	"BGGR": gocv.ColorBayerGRToBGR,
+	"GBRG": gocv.ColorBayerRGToBGR,
 }
 
 // ProcessFrame debayers, white-balances, stretches, and saves a JPEG from a raw FITS file.
