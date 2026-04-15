@@ -238,6 +238,30 @@ func (e *Engine) Adjust(medianADU float64) {
 	e.log(profile)
 }
 
+// NeedsRapidCapture returns true when ADU is far off target (>20% error)
+// and we should skip the normal capture interval to converge faster
+func (e *Engine) NeedsRapidCapture() bool {
+	if e.lastMedianADU <= 0 {
+		return true // No data yet, capture fast
+	}
+	profile := e.ActiveProfile()
+	targetPixel := (profile.ADUTarget / 100.0) * 65535.0
+	errorPct := math.Abs(e.lastMedianADU-targetPixel) / targetPixel * 100.0
+	return errorPct > 20.0
+}
+
+// IsConverged returns true when ADU is within the buffer zone of the target
+// Only converged frames should be sent to the processing pipeline
+func (e *Engine) IsConverged() bool {
+	if e.lastMedianADU <= 0 {
+		return false
+	}
+	profile := e.ActiveProfile()
+	targetPixel := (profile.ADUTarget / 100.0) * 65535.0
+	errorPct := math.Abs(e.lastMedianADU-targetPixel) / targetPixel * 100.0
+	return errorPct <= e.bufferPct
+}
+
 func (e *Engine) predictTrend() float64 {
 	if len(e.history) < 3 {
 		return 0

@@ -217,32 +217,7 @@ func main() {
 		// Adjust auto-exposure
 		ae.Adjust(medianADU)
 
-		// Save frame to DB
-		frame := models.Frame{
-			FilePath:   filePath,
-			CapturedAt: timestamp,
-			ExposureMs: exposureMs,
-			Gain:       gain,
-			MedianADU:  &medianADU,
-		}
-		db.GetDB().Create(&frame)
-
-		// Publish to processing stream
-		novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]interface{}{
-			"frameId":  frame.ID,
-			"filePath": filePath,
-			"stretch":  ae.ActiveProfile().Stretch,
-		})
-
-		// Publish frame-new event
-		frameEvent, _ := json.Marshal(map[string]interface{}{
-			"id": frame.ID, "filePath": filePath,
-			"capturedAt": timestamp, "exposureMs": exposureMs,
-			"gain": gain, "medianAdu": medianADU,
-		})
-		novaskyRedis.Publish(ctx, novaskyRedis.ChannelFrameNew, string(frameEvent))
-
-		// Publish auto-exposure state
+		// Publish auto-exposure state (always, even during convergence)
 		aeState, _ := json.Marshal(ae.GetState())
 		novaskyRedis.Publish(ctx, novaskyRedis.ChannelAutoExposure, string(aeState))
 
@@ -252,20 +227,59 @@ func main() {
 		})
 		db.GetDB().Save(&models.Config{Key: "autoexposure.drift", Value: drift})
 
-		// Check backpressure (queue depth)
-		queueLen, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesProcessing)
-		if queueLen > 3 {
-			novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "paused")
-		} else if queueLen > 1 {
-			novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "throttled")
+		// Only send to pipeline when exposure has converged
+		// During rapid convergence, frames are just for ADU measurement — don't process them
+		if ae.IsConverged() {
+			// Save frame to DB
+			frame := models.Frame{
+				FilePath:   filePath,
+				CapturedAt: timestamp,
+				ExposureMs: exposureMs,
+				Gain:       gain,
+				MedianADU:  &medianADU,
+			}
+			db.GetDB().Create(&frame)
+
+			// Publish to processing stream
+			novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]interface{}{
+				"frameId":  frame.ID,
+				"filePath": filePath,
+				"stretch":  ae.ActiveProfile().Stretch,
+			})
+
+			// Publish frame-new event
+			frameEvent, _ := json.Marshal(map[string]interface{}{
+				"id": frame.ID, "filePath": filePath,
+				"capturedAt": timestamp, "exposureMs": exposureMs,
+				"gain": gain, "medianAdu": medianADU,
+			})
+			novaskyRedis.Publish(ctx, novaskyRedis.ChannelFrameNew, string(frameEvent))
+
+			// Check backpressure (queue depth)
+			queueLen, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesProcessing)
+			if queueLen > 3 {
+				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "paused")
+			} else if queueLen > 1 {
+				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "throttled")
+			} else {
+				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "normal")
+			}
+
+			log.Printf("[ingest-camera] Frame captured: %s exp=%.3fms gain=%d adu=%.0f",
+				frame.ID, exposureMs, gain, medianADU)
 		} else {
-			novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "normal")
+			// Convergence frame — just for ADU measurement, delete the FITS
+			os.Remove(filePath)
+			log.Printf("[ingest-camera] Convergence frame: exp=%.3fms gain=%d adu=%.0f (not sent to pipeline)",
+				exposureMs, gain, medianADU)
 		}
 
-		log.Printf("[ingest-camera] Frame captured: %s exp=%.3fms gain=%d adu=%.0f",
-			frame.ID, exposureMs, gain, medianADU)
-
-		time.Sleep(interval)
+		// Rapid capture when ADU is way off — skip the normal interval
+		if ae.NeedsRapidCapture() {
+			time.Sleep(500 * time.Millisecond) // Minimal delay for camera readout
+		} else {
+			time.Sleep(interval)
+		}
 	}
 }
 
