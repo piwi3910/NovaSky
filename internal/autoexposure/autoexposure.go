@@ -202,26 +202,37 @@ func (e *Engine) Adjust(medianADU float64) {
 	// Calculate error percentage
 	errorPct := math.Abs(medianADU-targetPixel) / targetPixel * 100.0
 
-	if errorPct > e.bufferPct {
-		// SLEW mode: full ratio correction
+	if errorPct > 20.0 {
+		// SLEW mode: large error, apply capped ratio correction
 		e.phase = "slew"
 		ratio := targetPixel / medianADU
+		// Cap max change to 2x per cycle to avoid wild swings
+		ratio = clamp(ratio, 0.5, 2.0)
+
+		newExposure := e.currentExposure * ratio
+		e.currentExposure = clamp(newExposure, profile.MinExposureMs, profile.MaxExposureMs)
+	} else if errorPct > e.bufferPct {
+		// CONVERGE mode: close to target, use damped correction
+		e.phase = "converge"
+		error := (targetPixel - medianADU) / targetPixel
+		// Apply 30% of error — fast enough to converge, slow enough to not oscillate
+		correction := 1.0 + (error * 0.3)
+		e.currentExposure *= correction
+		e.currentExposure = clamp(e.currentExposure, profile.MinExposureMs, profile.MaxExposureMs)
 
 		// Apply predictive correction if we have history
 		prediction := e.predictTrend()
 		if prediction != 0 {
-			ratio *= (1.0 + prediction)
+			e.currentExposure *= (1.0 + prediction*0.3)
+			e.currentExposure = clamp(e.currentExposure, profile.MinExposureMs, profile.MaxExposureMs)
 			e.phase = "predict"
 		}
-
-		newExposure := e.currentExposure * ratio
-		e.currentExposure = clamp(newExposure, profile.MinExposureMs, profile.MaxExposureMs)
 	} else {
-		// TRACK mode: gentle PID correction
+		// TRACK mode: within buffer zone, very gentle corrections only
 		e.phase = "track"
 		error := (targetPixel - medianADU) / targetPixel
-		// Damped proportional correction (10% of error)
-		correction := 1.0 + (error * 0.1)
+		// 5% of error — barely nudge, let it settle naturally
+		correction := 1.0 + (error * 0.05)
 		e.currentExposure *= correction
 		e.currentExposure = clamp(e.currentExposure, profile.MinExposureMs, profile.MaxExposureMs)
 	}
