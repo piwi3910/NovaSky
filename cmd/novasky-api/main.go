@@ -208,22 +208,108 @@ func main() {
 		})
 	})
 
+	// Public sharing page — simple read-only view
+	app.Get("/public", func(c *fiber.Ctx) error {
+		var frame models.Frame
+		db.GetDB().Where("jpeg_path IS NOT NULL").Order("created_at DESC").First(&frame)
+
+		var safety models.SafetyState
+		db.GetDB().Order("evaluated_at DESC").First(&safety)
+
+		var analysis models.AnalysisResult
+		db.GetDB().Order("analyzed_at DESC").First(&analysis)
+
+		html := fmt.Sprintf(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>NovaSky Observatory</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<style>
+body{margin:0;background:#111;color:#eee;font-family:sans-serif;text-align:center}
+img{max-width:100%%;max-height:80vh;border-radius:8px;margin:20px auto}
+.info{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;padding:10px}
+.badge{padding:4px 12px;border-radius:4px;font-weight:bold}
+.safe{background:#4caf50}.unsafe{background:#f44336}.unknown{background:#ff9800}
+h1{margin:10px 0;font-size:1.5em}
+</style></head><body>
+<h1>NovaSky All-Sky Camera</h1>
+<img src="/api/frames/%s/jpeg" alt="Latest sky frame">
+<div class="info">
+<span class="badge %s">%s</span>
+<span>Cloud: %.0f%%</span>
+<span>Sky: %s</span>
+<span>Updated: %s</span>
+</div>
+</body></html>`,
+			frame.ID,
+			strings.ToLower(safety.State), safety.State,
+			analysis.CloudCover*100, analysis.SkyQuality,
+			frame.CapturedAt.Format("15:04:05"),
+		)
+		c.Set("Content-Type", "text/html")
+		return c.SendString(html)
+	})
+
 	// Prometheus metrics
 	app.Get("/metrics", func(c *fiber.Ctx) error {
+		ctx := context.Background()
+
 		var frameCount int64
 		db.GetDB().Model(&models.Frame{}).Count(&frameCount)
 		var safetyCount int64
 		db.GetDB().Model(&models.SafetyState{}).Count(&safetyCount)
 
-		metrics := "# HELP novasky_frames_total Total captured frames\n"
-		metrics += "# TYPE novasky_frames_total counter\n"
-		metrics += "novasky_frames_total " + itoa(int(frameCount)) + "\n"
-		metrics += "# HELP novasky_safety_evaluations_total Total safety evaluations\n"
-		metrics += "# TYPE novasky_safety_evaluations_total counter\n"
-		metrics += "novasky_safety_evaluations_total " + itoa(int(safetyCount)) + "\n"
+		// Latest safety state
+		var safety models.SafetyState
+		db.GetDB().Order("evaluated_at DESC").First(&safety)
+		safetyGauge := 1 // UNKNOWN
+		if safety.State == "SAFE" {
+			safetyGauge = 2
+		}
+		if safety.State == "UNSAFE" {
+			safetyGauge = 0
+		}
+
+		// Latest analysis
+		var analysis models.AnalysisResult
+		db.GetDB().Order("analyzed_at DESC").First(&analysis)
+
+		// Latest frame
+		var frame models.Frame
+		db.GetDB().Order("created_at DESC").First(&frame)
+
+		// Queue depths
+		qProcessing, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesProcessing)
+
+		// Disk
+		total, used, free := diskmanager.GetUsage(os.Getenv("FRAME_SPOOL_DIR"))
+
+		m := ""
+		m += "# HELP novasky_frames_total Total captured frames\n# TYPE novasky_frames_total counter\n"
+		m += fmt.Sprintf("novasky_frames_total %d\n", frameCount)
+		m += "# HELP novasky_safety_state Current safety state (0=UNSAFE,1=UNKNOWN,2=SAFE)\n# TYPE novasky_safety_state gauge\n"
+		m += fmt.Sprintf("novasky_safety_state %d\n", safetyGauge)
+		m += "# HELP novasky_cloud_cover Current cloud cover percentage\n# TYPE novasky_cloud_cover gauge\n"
+		m += fmt.Sprintf("novasky_cloud_cover %.1f\n", analysis.CloudCover*100)
+		m += "# HELP novasky_exposure_ms Current exposure in milliseconds\n# TYPE novasky_exposure_ms gauge\n"
+		m += fmt.Sprintf("novasky_exposure_ms %.3f\n", frame.ExposureMs)
+		m += "# HELP novasky_gain Current camera gain\n# TYPE novasky_gain gauge\n"
+		m += fmt.Sprintf("novasky_gain %d\n", frame.Gain)
+		m += "# HELP novasky_queue_depth Processing queue depth\n# TYPE novasky_queue_depth gauge\n"
+		m += fmt.Sprintf("novasky_queue_depth %d\n", qProcessing)
+		m += "# HELP novasky_disk_free_gb Free disk space in GB\n# TYPE novasky_disk_free_gb gauge\n"
+		m += fmt.Sprintf("novasky_disk_free_gb %.1f\n", free)
+		m += "# HELP novasky_disk_used_gb Used disk space in GB\n# TYPE novasky_disk_used_gb gauge\n"
+		m += fmt.Sprintf("novasky_disk_used_gb %.1f\n", used)
+		m += "# HELP novasky_disk_total_gb Total disk space in GB\n# TYPE novasky_disk_total_gb gauge\n"
+		m += fmt.Sprintf("novasky_disk_total_gb %.1f\n", total)
+
+		if analysis.SQM != nil {
+			m += "# HELP novasky_sqm Sky Quality Meter reading\n# TYPE novasky_sqm gauge\n"
+			m += fmt.Sprintf("novasky_sqm %.2f\n", *analysis.SQM)
+		}
 
 		c.Set("Content-Type", "text/plain; charset=utf-8")
-		return c.SendString(metrics)
+		return c.SendString(m)
 	})
 
 	// Pipeline status — health, latency, queue depths

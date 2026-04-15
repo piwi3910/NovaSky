@@ -7,6 +7,7 @@ import { SettingsCamera } from "./pages/SettingsCamera";
 import { SettingsImaging } from "./pages/SettingsImaging";
 import { SettingsDetection } from "./pages/SettingsDetection";
 import { SettingsAlerts } from "./pages/SettingsAlerts";
+import { SettingsExport } from "./pages/SettingsExport";
 import { Timelapse } from "./pages/Timelapse";
 import { FocusMode } from "./pages/FocusMode";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -35,6 +36,7 @@ export function App() {
             <NavLink component={Link} to="/settings/imaging" label="Imaging" />
             <NavLink component={Link} to="/settings/detection" label="Detection" />
             <NavLink component={Link} to="/settings/alerts" label="Alerts" />
+            <NavLink component={Link} to="/settings/export" label="Export" />
           </NavLink>
         </AppShell.Navbar>
         <AppShell.Main>
@@ -48,6 +50,7 @@ export function App() {
             <Route path="/settings/imaging" element={<SettingsImaging />} />
             <Route path="/settings/detection" element={<SettingsDetection />} />
             <Route path="/settings/alerts" element={<SettingsAlerts />} />
+            <Route path="/settings/export" element={<SettingsExport />} />
           </Routes>
         </AppShell.Main>
       </AppShell>
