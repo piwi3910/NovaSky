@@ -114,6 +114,14 @@ Each service subscribes and hot-reloads only what it needs. INDI server only res
 
 Day/night switch based on sun altitude (configurable twilight angle, default -6°).
 
+#### Twilight Transition
+- When crossing the twilight threshold, don't instantly jump to the other profile's gain
+- Gradually ramp gain from current value toward target profile's gain over a configurable transition period
+- Exposure adjusts simultaneously via auto-exposure to maintain ADU target
+- Transition speed: configurable (e.g. change gain by 1 unit per capture cycle, or over N minutes)
+- Prevents harsh frame-to-frame jumps at day/night boundary
+- Same smooth approach for any other profile differences (stretch mode transitions can switch instantly since they're post-processing)
+
 Per profile:
 - Gain (fixed value)
 - Min exposure (ms, sub-millisecond supported)
