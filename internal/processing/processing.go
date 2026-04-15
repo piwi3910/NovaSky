@@ -162,7 +162,7 @@ func applyAutoWB(img *gocv.Mat) {
 	for i, ch := range channels {
 		if means[i] > 0 {
 			gain := overall / means[i]
-			ch.MultiplyFloat(gain)
+			ch.MultiplyFloat(float32(gain))
 		}
 	}
 
