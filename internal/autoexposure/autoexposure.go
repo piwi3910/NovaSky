@@ -197,12 +197,6 @@ func (e *Engine) Adjust(medianADU float64) {
 	// Round to microsecond precision
 	e.currentExposure = math.Round(e.currentExposure*1000) / 1000
 
-	// Gain boost: if at max exposure and still under target
-	if e.currentExposure >= profile.MaxExposureMs && medianADU < targetPixel {
-		gainRatio := targetPixel / medianADU
-		e.currentGain = min(int(float64(e.currentGain)*gainRatio), profile.Gain)
-	}
-
 	e.log(profile)
 }
 
