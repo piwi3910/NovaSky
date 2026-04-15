@@ -164,6 +164,21 @@ func main() {
 		}
 	}()
 
+	// Focus mode subscription
+	focusMode := false
+	go func() {
+		sub := novaskyRedis.Client.Subscribe(ctx, "novasky:focus-mode")
+		ch := sub.Channel()
+		for msg := range ch {
+			focusMode = msg.Payload == "start"
+			if focusMode {
+				log.Println("[ingest-camera] Focus mode STARTED — rapid capture, short exposure")
+			} else {
+				log.Println("[ingest-camera] Focus mode STOPPED — resuming auto-exposure")
+			}
+		}
+	}()
+
 	log.Printf("[ingest-camera] Starting capture loop: device=%s spool=%s", deviceName, spoolDir)
 
 	frameCount := 0
@@ -186,6 +201,34 @@ func main() {
 		interval := defaultInterval
 		if backpressure == "throttled" {
 			interval *= 2
+		}
+
+		// Focus mode override — rapid capture with fixed short exposure
+		if focusMode {
+			client.SetGain(deviceName, 200)
+			time.Sleep(50 * time.Millisecond)
+			fitsData, err := client.Capture(deviceName, 0.5, 10*time.Second) // 500ms, fixed
+			if err != nil {
+				log.Printf("[ingest-camera] Focus capture failed: %v", err)
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			medianADU := fits.MedianADU(fitsData)
+			timestamp := time.Now()
+			filename := fmt.Sprintf("focus_%d.fits", timestamp.UnixMilli())
+			filePath := filepath.Join(spoolDir, filename)
+			os.WriteFile(filePath, fitsData, 0644)
+
+			// Publish focus frame directly to processing
+			frame := models.Frame{FilePath: filePath, CapturedAt: timestamp, ExposureMs: 500, Gain: 200, MedianADU: &medianADU}
+			db.GetDB().Create(&frame)
+			novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]interface{}{
+				"frameId": frame.ID, "filePath": filePath, "stretch": "auto",
+			})
+
+			log.Printf("[ingest-camera] Focus frame: %s adu=%.0f", frame.ID, medianADU)
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 
 		// Get exposure settings

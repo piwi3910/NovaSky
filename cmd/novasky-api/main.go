@@ -306,6 +306,25 @@ func main() {
 		return c.JSON(points)
 	})
 
+	// Focus mode
+	var focusMode bool
+	app.Post("/api/focus/start", func(c *fiber.Ctx) error {
+		focusMode = true
+		// Publish focus mode change
+		novaskyRedis.Publish(context.Background(), "novasky:focus-mode", "start")
+		return c.JSON(fiber.Map{"focusMode": true})
+	})
+
+	app.Post("/api/focus/stop", func(c *fiber.Ctx) error {
+		focusMode = false
+		novaskyRedis.Publish(context.Background(), "novasky:focus-mode", "stop")
+		return c.JSON(fiber.Map{"focusMode": false})
+	})
+
+	app.Get("/api/focus/status", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"focusMode": focusMode})
+	})
+
 	// WebSocket
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {

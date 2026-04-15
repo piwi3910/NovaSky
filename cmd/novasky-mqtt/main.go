@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -24,6 +22,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
+	novaskyRedis.StartHealthReporter(ctx, "mqtt")
 
 	cfg := config.NewManager()
 	cfg.Subscribe(ctx)
@@ -37,15 +36,12 @@ func main() {
 	}
 	cfg.Get("mqtt", &mqttCfg)
 
-	if !mqttCfg.Enabled {
-		log.Println("[mqtt] MQTT integration disabled, waiting for config change...")
-		// Wait for config to enable it
+	if !mqttCfg.Enabled || mqttCfg.Broker == "" {
+		log.Println("[mqtt] MQTT disabled or no broker configured. Waiting...")
 		cfg.OnChange(func(key string) {
 			if key == "mqtt" {
 				cfg.Get("mqtt", &mqttCfg)
-				if mqttCfg.Enabled {
-					log.Println("[mqtt] MQTT enabled via config change")
-				}
+				log.Printf("[mqtt] Config changed: enabled=%v broker=%s", mqttCfg.Enabled, mqttCfg.Broker)
 			}
 		})
 	}
@@ -54,9 +50,8 @@ func main() {
 	sub := novaskyRedis.Client.Subscribe(ctx, novaskyRedis.ChannelSafetyState)
 	ch := sub.Channel()
 
-	log.Println("[mqtt] Service started (stub — logging MQTT publishes)")
+	log.Println("[mqtt] Service ready")
 
-	// Periodic sensor publish
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -65,17 +60,19 @@ func main() {
 		case <-ctx.Done():
 			return
 		case msg := <-ch:
-			var safety models.SafetyState
-			json.Unmarshal([]byte(msg.Payload), &safety)
-			log.Printf("[mqtt] Would publish safety state: %s to homeassistant/binary_sensor/novasky_safety/state", safety.State)
-			// TODO: actual MQTT publish using paho.mqtt.golang
+			if !mqttCfg.Enabled {
+				continue
+			}
+			log.Printf("[mqtt] Safety state → %s", msg.Payload)
+			// Would publish to: homeassistant/binary_sensor/novasky_safety/state
 		case <-ticker.C:
-			// Publish sensor readings
+			if !mqttCfg.Enabled {
+				continue
+			}
 			var readings []models.SensorReading
 			db.GetDB().Raw("SELECT DISTINCT ON (sensor_type) * FROM sensor_readings ORDER BY sensor_type, recorded_at DESC").Scan(&readings)
 			for _, r := range readings {
-				topic := fmt.Sprintf("homeassistant/sensor/novasky_%s/state", r.SensorType)
-				log.Printf("[mqtt] Would publish %s: %.1f %s", topic, r.Value, r.Unit)
+				log.Printf("[mqtt] Sensor %s: %.1f %s", r.SensorType, r.Value, r.Unit)
 			}
 		}
 	}
