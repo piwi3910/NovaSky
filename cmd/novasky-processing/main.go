@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/piwi3910/NovaSky/internal/astronomy"
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
@@ -80,14 +81,37 @@ func main() {
 					stretch = s
 				}
 
-				// Read stacking config
-				var stackCfg struct {
-					Enabled bool `json:"enabled"`
-					Count   int  `json:"count"`
+				// Read stacking from active profile (day or night)
+				var dayP, nightP struct {
+					StackingEnabled bool `json:"stackingEnabled"`
+					StackingCount   int  `json:"stackingCount"`
 				}
-				cfg.Get("imaging.stacking", &stackCfg)
-				if stackCfg.Count <= 0 {
-					stackCfg.Count = 5
+				cfg.Get("imaging.day", &dayP)
+				cfg.Get("imaging.night", &nightP)
+
+				// Determine current mode from sun altitude
+				var loc struct {
+					Latitude  float64 `json:"latitude"`
+					Longitude float64 `json:"longitude"`
+				}
+				cfg.Get("location", &loc)
+				sunAlt := astronomy.SunAltitude(time.Now(), loc.Latitude, loc.Longitude)
+				var twilightAngle float64
+				var twCfg struct {
+					SunAltitude float64 `json:"sunAltitude"`
+				}
+				cfg.Get("imaging.twilight", &twCfg)
+				twilightAngle = twCfg.SunAltitude
+				if twilightAngle == 0 {
+					twilightAngle = -6
+				}
+
+				stackCfg := dayP
+				if sunAlt <= twilightAngle {
+					stackCfg = nightP
+				}
+				if stackCfg.StackingCount <= 0 {
+					stackCfg.StackingCount = 5
 				}
 
 				// Get processing configs
@@ -112,12 +136,12 @@ func main() {
 				// Acknowledge immediately so queue doesn't back up
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesProcessing, consumerGroup, msg.ID)
 
-				if stackCfg.Enabled && stackCfg.Count > 1 {
+				if stackCfg.StackingEnabled && stackCfg.StackingCount > 1 {
 					// Stacking mode: buffer frames, process when full
 					stackBuffer = append(stackBuffer, pendingFrame{frameID, filePath, stretch})
-					log.Printf("[processing] Stacking: buffered frame %d/%d", len(stackBuffer), stackCfg.Count)
+					log.Printf("[processing] Stacking: buffered frame %d/%d", len(stackBuffer), stackCfg.StackingCount)
 
-					if len(stackBuffer) < stackCfg.Count {
+					if len(stackBuffer) < stackCfg.StackingCount {
 						continue // wait for more frames
 					}
 

@@ -3,7 +3,7 @@ import { Stack, Title, Card, Text, NumberInput, SegmentedControl, Button, Group,
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
 
-interface ImagingProfile { gain: number; minExposureMs: number; maxExposureMs: number; aduTarget: number; stretch: string; }
+interface ImagingProfile { gain: number; minExposureMs: number; maxExposureMs: number; aduTarget: number; stretch: string; stackingEnabled?: boolean; stackingCount?: number; }
 
 export function SettingsImaging() {
   const { data: configData } = useApi<Record<string, any>>("/api/config");
@@ -13,8 +13,6 @@ export function SettingsImaging() {
   const [nightProfile, setNightProfile] = useState<ImagingProfile>({ gain: 300, minExposureMs: 1000, maxExposureMs: 30000, aduTarget: 30, stretch: "auto" });
   const [twilightAngle, setTwilightAngle] = useState(-6);
   const [transitionSpeed, setTransitionSpeed] = useState(25);
-  const [stackingEnabled, setStackingEnabled] = useState(false);
-  const [stackingCount, setStackingCount] = useState(5);
   const [saving, setSaving] = useState(false);
   const initialized = useRef(false);
 
@@ -26,15 +24,12 @@ export function SettingsImaging() {
       const tw = configData["imaging.twilight"] as any;
       if (tw?.sunAltitude !== undefined) setTwilightAngle(tw.sunAltitude);
       if (tw?.transitionSpeed !== undefined) setTransitionSpeed(tw.transitionSpeed);
-      const stack = (configData["imaging.stacking"] ?? {}) as any;
-      if (stack.enabled !== undefined) setStackingEnabled(stack.enabled);
-      if (stack.count) setStackingCount(stack.count);
     }
   }, [configData]);
 
   const profile = activeTab === "day" ? dayProfile : nightProfile;
   const setProfile = activeTab === "day" ? setDayProfile : setNightProfile;
-  function updateField(field: keyof ImagingProfile, value: string | number) { setProfile(prev => ({ ...prev, [field]: value })); }
+  function updateField(field: keyof ImagingProfile, value: string | number | boolean) { setProfile(prev => ({ ...prev, [field]: value })); }
 
   async function save() {
     setSaving(true);
@@ -42,7 +37,6 @@ export function SettingsImaging() {
       fetch("/api/config/imaging.day", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: dayProfile }) }),
       fetch("/api/config/imaging.night", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: nightProfile }) }),
       fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle, transitionSpeed } }) }),
-      fetch("/api/config/imaging.stacking", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { enabled: stackingEnabled, count: stackingCount } }) }),
     ]); setSaving(false);
   }
 
@@ -81,10 +75,10 @@ export function SettingsImaging() {
         </Stack>
       </Card>
       <Card shadow="sm" padding="lg" withBorder>
-        <Text fw={500} mb="sm">Frame Stacking</Text>
-        <Switch label="Enable stacking" checked={stackingEnabled} onChange={e => setStackingEnabled(e.currentTarget.checked)} mb="sm" description="Stack multiple frames before processing — reduces noise, brings out faint stars" />
-        {stackingEnabled && (
-          <NumberInput label="Frames to stack" value={stackingCount} onChange={v => setStackingCount(Number(v))} min={2} max={20} description="Number of consecutive frames averaged together" />
+        <Text fw={500} mb="sm">Frame Stacking ({activeTab})</Text>
+        <Switch label="Enable stacking" checked={profile.stackingEnabled ?? false} onChange={e => updateField("stackingEnabled", e.currentTarget.checked)} mb="sm" description="Stack multiple frames before processing — reduces noise, brings out faint stars" />
+        {profile.stackingEnabled && (
+          <NumberInput label="Frames to stack" value={profile.stackingCount ?? 5} onChange={v => updateField("stackingCount", Number(v))} min={2} max={20} description="Number of consecutive frames averaged together" />
         )}
       </Card>
       <Button onClick={save} loading={saving} fullWidth>Save Imaging Settings</Button>
