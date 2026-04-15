@@ -12,6 +12,7 @@ export function SettingsImaging() {
   const [dayProfile, setDayProfile] = useState<ImagingProfile>({ gain: 0, minExposureMs: 0.032, maxExposureMs: 5000, aduTarget: 30, stretch: "none" });
   const [nightProfile, setNightProfile] = useState<ImagingProfile>({ gain: 300, minExposureMs: 1000, maxExposureMs: 30000, aduTarget: 30, stretch: "auto" });
   const [twilightAngle, setTwilightAngle] = useState(-6);
+  const [transitionSpeed, setTransitionSpeed] = useState(25);
   const [saving, setSaving] = useState(false);
   const initialized = useRef(false);
 
@@ -22,6 +23,7 @@ export function SettingsImaging() {
       if (configData["imaging.night"]) setNightProfile(configData["imaging.night"] as ImagingProfile);
       const tw = configData["imaging.twilight"] as any;
       if (tw?.sunAltitude !== undefined) setTwilightAngle(tw.sunAltitude);
+      if (tw?.transitionSpeed !== undefined) setTransitionSpeed(tw.transitionSpeed);
     }
   }, [configData]);
 
@@ -34,7 +36,7 @@ export function SettingsImaging() {
     await Promise.all([
       fetch("/api/config/imaging.day", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: dayProfile }) }),
       fetch("/api/config/imaging.night", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: nightProfile }) }),
-      fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle } }) }),
+      fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle, transitionSpeed } }) }),
     ]); setSaving(false);
   }
 
@@ -55,7 +57,10 @@ export function SettingsImaging() {
         </Card>
       )}
       <Card shadow="sm" padding="lg" withBorder>
-        <NumberInput label="Twilight angle (°)" value={twilightAngle} onChange={v => setTwilightAngle(Number(v))} min={-18} max={0} step={1} suffix="°" description="Civil: -6°, Nautical: -12°, Astronomical: -18°" />
+        <Group grow>
+          <NumberInput label="Twilight angle (°)" value={twilightAngle} onChange={v => setTwilightAngle(Number(v))} min={-18} max={0} step={1} suffix="°" description="Civil: -6°, Nautical: -12°, Astronomical: -18°" />
+          <NumberInput label="Gain ramp speed" value={transitionSpeed} onChange={v => setTransitionSpeed(Number(v))} min={1} max={100} description="Gain steps per frame during twilight" />
+        </Group>
       </Card>
       <Card shadow="sm" padding="lg" withBorder>
         <SegmentedControl value={activeTab} onChange={setActiveTab} data={[{ value: "day", label: "Day" }, { value: "night", label: "Night" }]} fullWidth mb="md" />
