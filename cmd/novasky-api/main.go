@@ -168,9 +168,18 @@ func main() {
 
 	// Manual plate solve calibration — triggered by user to determine camera rotation
 	app.Post("/api/platesolve/calibrate", func(c *fiber.Ctx) error {
+		// Clear previous log
+		novaskyRedis.Client.Del(ctx, "novasky:calibration:log")
+		novaskyRedis.Client.Del(ctx, "novasky:calibration:status")
+
+		calLog := func(msg string) {
+			novaskyRedis.Client.RPush(ctx, "novasky:calibration:log", msg)
+			log.Printf("[calibrate] %s", msg)
+		}
+
 		// Get latest frame
 		var frame models.Frame
-		if err := db.GetDB().Order("created_at DESC").First(&frame).Error; err != nil {
+		if err := db.GetDB().Where("file_path IS NOT NULL").Order("created_at DESC").First(&frame).Error; err != nil {
 			return c.Status(404).JSON(fiber.Map{"error": "No frames available"})
 		}
 
@@ -183,24 +192,52 @@ func main() {
 			return c.Status(400).JSON(fiber.Map{"error": "Set focal length in Camera Settings first"})
 		}
 
-		// ZWO ASI676MC pixel size = 2.0µm, image width from frame
-		pixelSize := 2.0 // TODO: read from camera properties
+		pixelSize := 2.0
 		fov := platesolve.CalcFoV(optics.FocalLength, pixelSize, 3552)
 
-		// Run plate solve in background
+		// Run plate solve in background with logging
 		go func() {
-			cal, err := platesolve.Calibrate(frame.FilePath, fov)
-			if err != nil {
-				log.Printf("[api] Plate solve calibration failed: %v", err)
+			calLog(fmt.Sprintf("Starting calibration on frame %s", frame.ID))
+			calLog(fmt.Sprintf("Focal length: %.1fmm, Pixel size: %.1fµm", optics.FocalLength, pixelSize))
+			calLog(fmt.Sprintf("Calculated FoV: %.1f°", fov))
+			calLog(fmt.Sprintf("FITS file: %s", frame.FilePath))
+
+			// Check file exists
+			if _, err := os.Stat(frame.FilePath); err != nil {
+				calLog(fmt.Sprintf("ERROR: FITS file not found: %v", err))
+				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
 				return
 			}
-			if cal.Solved {
-				cfg.Set("camera.calibration", cal)
-				log.Printf("[api] Camera calibration saved: North=%.1f°", cal.NorthAngle)
+			calLog("FITS file found, launching ASTAP plate solver...")
+
+			cal, err := platesolve.Calibrate(frame.FilePath, fov)
+			if err != nil {
+				calLog(fmt.Sprintf("ERROR: Plate solve failed: %v", err))
+				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
+				return
 			}
+			if !cal.Solved {
+				calLog("FAILED: No star match found. Is it night time with a clear sky?")
+				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
+				return
+			}
+
+			calLog(fmt.Sprintf("Solved! North angle: %.1f°", cal.NorthAngle))
+			calLog(fmt.Sprintf("Center: RA=%.4f° Dec=%.4f°", cal.RA, cal.Dec))
+			calLog(fmt.Sprintf("Pixel scale: %.2f arcsec/pixel", cal.PixelScale))
+			cfg.Set("camera.calibration", cal)
+			calLog("Calibration saved successfully")
+			novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "success", 0)
 		}()
 
-		return c.JSON(fiber.Map{"status": "calibrating", "fitsPath": frame.FilePath, "fov": fov})
+		return c.JSON(fiber.Map{"status": "started", "fov": fov})
+	})
+
+	// Calibration log polling
+	app.Get("/api/platesolve/log", func(c *fiber.Ctx) error {
+		logs, _ := novaskyRedis.Client.LRange(ctx, "novasky:calibration:log", 0, -1).Result()
+		status, _ := novaskyRedis.Client.Get(ctx, "novasky:calibration:status").Result()
+		return c.JSON(fiber.Map{"logs": logs, "status": status})
 	})
 
 	// Devices — query INDI sidecar or return config fallback

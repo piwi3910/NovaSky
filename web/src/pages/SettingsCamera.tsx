@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Stack, Title, Select, NumberInput, Switch, Button, Group, Card, Text, Loader, Badge, Alert } from "@mantine/core";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Stack, Title, Select, NumberInput, Switch, Button, Group, Card, Text, Loader, Badge, Alert, Code } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
 
 export function SettingsCamera() {
@@ -11,6 +11,8 @@ export function SettingsCamera() {
   const [devices, setDevices] = useState<string[]>([]); const [saving, setSaving] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
   const [calibration, setCalibration] = useState<any>(null);
+  const [calLogs, setCalLogs] = useState<string[]>([]);
+  const logRef = useRef<HTMLDivElement>(null);
   const [loadingGps, setLoadingGps] = useState(false);
   const initialized = useRef(false);
 
@@ -119,33 +121,51 @@ export function SettingsCamera() {
         <Button
           onClick={async () => {
             setCalibrating(true);
+            setCalLogs([]);
             try {
               const res = await fetch("/api/platesolve/calibrate", { method: "POST" });
               const data = await res.json();
-              if (data.error) { alert(data.error); setCalibrating(false); return; }
-              // Poll for result
-              for (let i = 0; i < 30; i++) {
-                await new Promise(r => setTimeout(r, 3000));
-                const check = await fetch("/api/platesolve");
-                const cal = await check.json();
-                if (cal.solved) {
-                  setCalibration(cal);
-                  alert(`Calibration successful!\nNorth angle: ${cal.northAngle.toFixed(1)}°\nPixel scale: ${cal.pixelScale.toFixed(2)}"/px`);
+              if (data.error) { setCalLogs([`ERROR: ${data.error}`]); setCalibrating(false); return; }
+              // Poll for logs and status
+              for (let i = 0; i < 60; i++) {
+                await new Promise(r => setTimeout(r, 1500));
+                const check = await fetch("/api/platesolve/log");
+                const result = await check.json();
+                setCalLogs(result.logs ?? []);
+                if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+                if (result.status === "success") {
+                  const calRes = await fetch("/api/platesolve");
+                  const cal = await calRes.json();
+                  if (cal.solved) setCalibration(cal);
+                  setCalibrating(false);
+                  return;
+                }
+                if (result.status === "failed") {
                   setCalibrating(false);
                   return;
                 }
               }
-              alert("Calibration failed — no star match found. Make sure it is night time with a clear sky and stars are visible.");
-            } catch { alert("Failed to start calibration"); }
+              setCalLogs(prev => [...prev, "Timeout — calibration took too long"]);
+            } catch { setCalLogs(["ERROR: Failed to start calibration"]); }
             setCalibrating(false);
           }}
           loading={calibrating}
           variant="outline"
           fullWidth
           disabled={focalLength <= 0}
+          mb={calLogs.length > 0 ? "md" : undefined}
         >
           {focalLength <= 0 ? "Set focal length first" : "Calibrate North"}
         </Button>
+        {calLogs.length > 0 && (
+          <div ref={logRef} style={{ maxHeight: 200, overflowY: "auto", background: "var(--mantine-color-dark-7)", borderRadius: 6, padding: 12, fontFamily: "monospace", fontSize: 12 }}>
+            {calLogs.map((line, i) => (
+              <Text key={i} size="xs" c={line.startsWith("ERROR") || line.startsWith("FAILED") ? "red" : line.startsWith("Solved") || line.includes("successfully") ? "green" : "dimmed"} style={{ fontFamily: "monospace" }}>
+                {line}
+              </Text>
+            ))}
+          </div>
+        )}
       </Card>
       <Button onClick={save} loading={saving} fullWidth>Save Camera Settings</Button>
     </Stack>
