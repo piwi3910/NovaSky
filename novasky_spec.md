@@ -43,6 +43,12 @@ NovaSky is an observatory conditions platform combining:
 
 - INDI protocol (pure Go client, no Python)
 
+### GPIO / Hardware
+
+- Sensor support via GPIO/I2C/SPI (temperature, humidity, pressure, rain, wind)
+- Dew heater control via GPIO PWM — configurable target delta above dew point
+- RTC (Real Time Clock) support — sync system clock from hardware RTC on boot, NTP fallback
+
 ### Plate Solving
 
 - ASTAP (`astap_cli`) — local plate solver for all-sky cameras
@@ -72,6 +78,7 @@ NovaSky is an observatory conditions platform combining:
 - novasky-publisher (YouTube auto-publish)
 - novasky-storage (remote storage sync: NFS/SMB/S3)
 - novasky-stream (RTSP/HLS live stream)
+- novasky-gpio (sensor reading + dew heater control via GPIO/I2C)
 
 ## Redis Streams
 
@@ -449,6 +456,31 @@ internal/      # Shared Go packages
 web/           # React frontend
 ```
 
+## GPIO / Sensor Service
+
+Manages hardware connected to RP5 GPIO/I2C/SPI pins:
+
+### Sensors (I2C/SPI)
+- BME280 / BME680 — temperature, humidity, pressure (optional: gas/air quality)
+- Rain sensor — GPIO digital input (wet/dry) or analog via ADC
+- Wind speed — GPIO pulse counter from anemometer
+- Wind direction — ADC from wind vane
+- Ambient light sensor — for independent day/night verification
+- Configurable poll interval per sensor type
+
+### Dew Heater Control
+- GPIO PWM output to MOSFET-controlled dew heater strip
+- Target: maintain lens temperature at configurable delta above dew point (e.g. +3°C)
+- PID control loop: reads temperature + humidity → calculates dew point → adjusts PWM duty cycle
+- Safety: max duty cycle limit, timeout if sensor fails
+- Status published to Redis for dashboard display
+
+### RTC (Real Time Clock)
+- Read hardware RTC (e.g. DS3231) on boot to set system clock
+- Useful when no network/NTP available at remote sites
+- Falls back to NTP when available
+- Configurable: RTC device path
+
 ## Disk Space Management
 
 - Monitor disk usage on frame spool and export directories
@@ -525,6 +557,17 @@ web/           # React frontend
 - Display predicted vs actual cloud cover
 - Tonight's forecast summary on dashboard
 - Configurable forecast source
+
+### Weather Service Integration
+Pluggable weather data sources — sensor worker aggregates from all enabled sources:
+- GPIO/I2C sensors (direct hardware)
+- Ecowitt-compatible weather stations (local API, auto-discovery or manual IP)
+- Open-Meteo API (forecast + current conditions)
+- OpenWeatherMap API
+- WeatherFlow Tempest API
+- Custom webhook (receive JSON POSTs from any source)
+- Priority-based: local sensors override API data when available
+- All readings normalized to common format and stored in sensor_readings table
 
 ## Future Enhancements
 
