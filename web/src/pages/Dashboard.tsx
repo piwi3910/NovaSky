@@ -47,13 +47,20 @@ export function Dashboard() {
         )}
       </Card>
 
-      <Modal opened={fullscreen} onClose={() => setFullscreen(false)} fullScreen padding={0} withCloseButton={false}>
-        {frameId && hasJpeg && (
+      {fullscreen && frameId && hasJpeg && (
+        <div
+          onClick={() => setFullscreen(false)}
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            zIndex: 9999, background: "rgba(0,0,0,0.95)",
+            overflow: "auto", cursor: "pointer",
+            display: "flex", justifyContent: "center",
+          }}
+        >
           <img src={`/api/frames/${frameId}/jpeg`} alt="Full size frame"
-            onClick={() => setFullscreen(false)}
-            style={{ width: "100%", height: "100vh", objectFit: "contain", background: "#000", cursor: "pointer" }} />
-        )}
-      </Modal>
+            style={{ maxWidth: "none", height: "auto", objectFit: "none" }} />
+        </div>
+      )}
 
       <PipelineView />
 
