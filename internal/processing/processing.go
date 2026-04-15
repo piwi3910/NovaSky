@@ -1,7 +1,6 @@
 package processing
 
 import (
-	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
@@ -10,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/piwi3910/NovaSky/internal/fits"
 )
 
 // ProcessResult contains the output of frame processing
@@ -25,22 +26,18 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 		return nil, err
 	}
 
-	// Parse FITS header
-	header := parseFITSHeader(data)
-	width := header.naxis1
-	height := header.naxis2
-	bitpix := header.bitpix
-	bayerPat := header.bayerpat
-	headerSize := header.dataOffset
+	// Parse FITS header using shared package
+	header := fits.ParseHeader(data)
+	width := header.NAXIS1
+	height := header.NAXIS2
+	bayerPat := header.BayerPat
 
 	if width == 0 || height == 0 {
 		return nil, fmt.Errorf("invalid FITS dimensions: %dx%d", width, height)
 	}
 
-	pixelData := data[headerSize:]
-
 	// Read raw pixel values as uint16 (applying BZERO for proper unsigned interpretation)
-	pixels := readPixels16(pixelData, width, height, bitpix, header.bzero)
+	pixels := fits.ReadPixels16(data, header)
 
 	// Debayer
 	var img *image.RGBA
@@ -80,72 +77,6 @@ type MaskConfig struct {
 	CenterY int  `json:"centerY"`
 	Radius  int  `json:"radius"`
 	Enabled bool `json:"enabled"`
-}
-
-type fitsHeader struct {
-	naxis1     int
-	naxis2     int
-	bitpix     int
-	bayerpat   string
-	bzero      float64
-	dataOffset int
-}
-
-func parseFITSHeader(data []byte) fitsHeader {
-	h := fitsHeader{bitpix: 16}
-	for i := 0; i < len(data)-80; i += 80 {
-		line := string(data[i : i+80])
-		key := strings.TrimSpace(line[:8])
-
-		if key == "END" {
-			h.dataOffset = ((i/80 + 1) * 80)
-			h.dataOffset = ((h.dataOffset + 2879) / 2880) * 2880
-			break
-		}
-
-		if len(line) > 10 && line[8] == '=' {
-			valStr := strings.TrimSpace(strings.Split(line[10:], "/")[0])
-			valStr = strings.Trim(valStr, "' ")
-
-			switch key {
-			case "NAXIS1":
-				fmt.Sscanf(valStr, "%d", &h.naxis1)
-			case "NAXIS2":
-				fmt.Sscanf(valStr, "%d", &h.naxis2)
-			case "BITPIX":
-				fmt.Sscanf(valStr, "%d", &h.bitpix)
-			case "BAYERPAT":
-				h.bayerpat = valStr
-			case "BZERO":
-				fmt.Sscanf(valStr, "%f", &h.bzero)
-			}
-		}
-	}
-	return h
-}
-
-func readPixels16(data []byte, width, height, bitpix int, bzero float64) []uint16 {
-	nPixels := width * height
-	pixels := make([]uint16, nPixels)
-	bytesPerPixel := abs(bitpix) / 8
-
-	for i := 0; i < nPixels && i*bytesPerPixel+1 < len(data); i++ {
-		if bytesPerPixel == 2 {
-			// FITS is big-endian. Apply BZERO for proper unsigned interpretation.
-			raw := int16(binary.BigEndian.Uint16(data[i*2 : i*2+2]))
-			val := float64(raw) + bzero
-			if val < 0 {
-				val = 0
-			}
-			if val > 65535 {
-				val = 65535
-			}
-			pixels[i] = uint16(val)
-		} else if bytesPerPixel == 1 {
-			pixels[i] = uint16(data[i]) * 256
-		}
-	}
-	return pixels
 }
 
 // debayer implements simple bilinear Bayer demosaicing
@@ -345,11 +276,4 @@ func applyMask(img *image.RGBA, cx, cy, radius int) {
 			}
 		}
 	}
-}
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }

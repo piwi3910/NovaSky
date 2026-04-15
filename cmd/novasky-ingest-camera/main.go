@@ -2,20 +2,19 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"syscall"
 	"time"
 
 	"github.com/piwi3910/NovaSky/internal/autoexposure"
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
+	"github.com/piwi3910/NovaSky/internal/fits"
 	"github.com/piwi3910/NovaSky/internal/indi"
 	"github.com/piwi3910/NovaSky/internal/models"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
@@ -212,7 +211,7 @@ func main() {
 		}
 
 		// Compute median ADU from raw FITS data
-		medianADU := computeMedianADU(fitsData)
+		medianADU := fits.MedianADU(fitsData)
 
 		// Adjust auto-exposure
 		ae.Adjust(medianADU)
@@ -283,62 +282,4 @@ func main() {
 	}
 }
 
-// computeMedianADU reads raw 16-bit pixel data from FITS and computes the median.
-// Handles BZERO/BSCALE for proper unsigned 16-bit interpretation.
-func computeMedianADU(fitsData []byte) float64 {
-	// Parse BZERO from header (FITS with BITPIX=16 + BZERO=32768 = unsigned 16-bit)
-	var bzero float64
-	headerEnd := 0
-	for i := 0; i < len(fitsData)-80; i += 80 {
-		line := string(fitsData[i : i+80])
-		if len(line) >= 3 && line[:3] == "END" {
-			headerEnd = ((i/80 + 1) * 80)
-			headerEnd = ((headerEnd + 2879) / 2880) * 2880
-			break
-		}
-		key := ""
-		if len(line) >= 8 {
-			key = line[:8]
-		}
-		if key == "BZERO   " && len(line) > 10 && line[8] == '=' {
-			fmt.Sscanf(line[10:], "%f", &bzero)
-		}
-	}
-
-	if headerEnd == 0 || headerEnd >= len(fitsData) {
-		return 0
-	}
-
-	pixelData := fitsData[headerEnd:]
-
-	// Read as 16-bit big-endian, apply BZERO for true unsigned value
-	nPixels := len(pixelData) / 2
-	if nPixels == 0 {
-		return 0
-	}
-
-	// Sample for performance (every Nth pixel for large images)
-	step := 1
-	if nPixels > 100000 {
-		step = nPixels / 100000
-	}
-
-	values := make([]float64, 0, nPixels/step)
-	for i := 0; i < len(pixelData)-1; i += 2 * step {
-		raw := int16(binary.BigEndian.Uint16(pixelData[i : i+2]))
-		// Apply BZERO: physical_value = raw + BZERO
-		val := float64(raw) + bzero
-		if val < 0 {
-			val = 0
-		}
-		values = append(values, val)
-	}
-
-	if len(values) == 0 {
-		return 0
-	}
-
-	// Sort and take median
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	return values[len(values)/2]
-}
+// computeMedianADU is now in internal/fits package: fits.MedianADU()

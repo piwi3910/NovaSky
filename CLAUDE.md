@@ -69,6 +69,14 @@ go test -run TestAutoExposure ./internal/autoexposure/
 cd web && pnpm install && pnpm dev
 ```
 
+## Code Rules
+
+- **No duplicate code** — any shared logic (FITS parsing, BZERO handling, median calculation, etc.) MUST go in `internal/` shared packages. Never copy-paste the same function into multiple services.
+- **Shared packages**: `internal/fits` (FITS reading), `internal/db` (database), `internal/redis` (streams/pubsub), `internal/config` (config management), `internal/autoexposure` (exposure engine), `internal/processing` (image processing), `internal/indi` (camera client)
+- **FITS BZERO** — FITS files with BITPIX=16 use BZERO=32768 for unsigned 16-bit. Always use `internal/fits` package which handles this correctly. Never read raw FITS bytes without applying BZERO.
+- **European date format** — all dates displayed as DD/MM/YYYY HH:mm:ss (24h). Use `web/src/utils/format.ts` `formatDate()`.
+- **Sidecar responsibility** — the INDI sidecar (now Go INDI client) is ONLY for camera/driver interfacing. No image processing in the capture path.
+
 ## Key Design Decisions
 
 - **16-bit raw capture** — camera configured for ASI_IMG_RAW16 via INDI
