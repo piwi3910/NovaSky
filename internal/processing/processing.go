@@ -36,9 +36,35 @@ var cfaMap = map[string]gocv.ColorConversionCode{
 	"GBRG": gocv.ColorBayerRGToBGR,
 }
 
+// removeSkyglow subtracts a smoothed background model to remove light pollution gradients.
+// Works on 16-bit BGR Mat: converts to float32, blurs with large kernel, subtracts, clips, converts back.
+func removeSkyglow(img *gocv.Mat) {
+	// Convert to float32
+	imgF := gocv.NewMat()
+	defer imgF.Close()
+	img.ConvertTo(&imgF, gocv.MatTypeCV32FC3)
+
+	// Large Gaussian blur to estimate background gradient
+	bg := gocv.NewMat()
+	defer bg.Close()
+	gocv.GaussianBlur(imgF, &bg, image.Pt(127, 127), 0, 0, gocv.BorderDefault)
+
+	// Subtract background from original
+	gocv.Subtract(imgF, bg, &imgF)
+
+	// Clip negative values to 0 by using max(imgF, 0)
+	zeros := gocv.NewMatWithSizeFromScalar(gocv.NewScalar(0, 0, 0, 0), imgF.Rows(), imgF.Cols(), gocv.MatTypeCV32FC3)
+	defer zeros.Close()
+	gocv.Max(imgF, zeros, &imgF)
+
+	// Convert back to 16-bit
+	imgF.ConvertTo(img, gocv.MatTypeCV16UC3)
+}
+
 // ProcessFrame debayers, white-balances, stretches, and saves a JPEG from a raw FITS file.
 // Uses OpenCV (via GoCV) for debayering — proven correct with indi-allsky mapping.
-func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*ProcessResult, error) {
+// skyglow controls whether background gradient subtraction is applied after debayer.
+func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig, skyglow bool) (*ProcessResult, error) {
 	// Read FITS
 	rawData, err := os.ReadFile(fitsPath)
 	if err != nil {
@@ -77,6 +103,11 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 		gocv.CvtColor(mat, &rgb, gocv.ColorGrayToBGR)
 	}
 	defer rgb.Close()
+
+	// Apply skyglow background model subtraction (before SCNR)
+	if skyglow {
+		removeSkyglow(&rgb)
+	}
 
 	// Apply SCNR (remove green cast from color cameras)
 	if bayerPat != "" {
@@ -447,6 +478,128 @@ func applyGHSStretch(src *gocv.Mat, dst *gocv.Mat, D, b, SP, HP float64) {
 	for _, ch := range channels {
 		ch.Close()
 	}
+}
+
+// GenerateKeogram creates a keogram by extracting the center vertical strip from each
+// JPEG frame and stacking them horizontally. The result shows sky changes over time.
+func GenerateKeogram(jpegPaths []string, outputPath string) error {
+	if len(jpegPaths) == 0 {
+		return fmt.Errorf("no frames provided for keogram")
+	}
+
+	// Read first image to get dimensions
+	first := gocv.IMRead(jpegPaths[0], gocv.IMReadColor)
+	if first.Empty() {
+		return fmt.Errorf("failed to read first frame: %s", jpegPaths[0])
+	}
+	height := first.Rows()
+	centerX := first.Cols() / 2
+	first.Close()
+
+	// Create output image: height x numFrames
+	keogram := gocv.NewMatWithSize(height, len(jpegPaths), gocv.MatTypeCV8UC3)
+	defer keogram.Close()
+
+	for i, path := range jpegPaths {
+		img := gocv.IMRead(path, gocv.IMReadColor)
+		if img.Empty() {
+			img.Close()
+			continue
+		}
+
+		// Extract center column strip
+		strip := img.Region(image.Rect(centerX, 0, centerX+1, img.Rows()))
+		destCol := keogram.Region(image.Rect(i, 0, i+1, height))
+		strip.CopyTo(&destCol)
+		strip.Close()
+		destCol.Close()
+		img.Close()
+	}
+
+	if ok := gocv.IMWriteWithParams(outputPath, keogram, []int{gocv.IMWriteJpegQuality, 90}); !ok {
+		return fmt.Errorf("failed to write keogram: %s", outputPath)
+	}
+	return nil
+}
+
+// GenerateStarTrails creates a star trails image by MAX blending all frames.
+// For each pixel, the maximum value across all frames is kept, producing
+// circular star trails from accumulated star positions.
+func GenerateStarTrails(jpegPaths []string, outputPath string) error {
+	if len(jpegPaths) == 0 {
+		return fmt.Errorf("no frames provided for star trails")
+	}
+
+	// Load first frame as accumulator
+	acc := gocv.IMRead(jpegPaths[0], gocv.IMReadColor)
+	if acc.Empty() {
+		return fmt.Errorf("failed to read first frame: %s", jpegPaths[0])
+	}
+	defer acc.Close()
+
+	// MAX blend each subsequent frame
+	for _, path := range jpegPaths[1:] {
+		img := gocv.IMRead(path, gocv.IMReadColor)
+		if img.Empty() {
+			img.Close()
+			continue
+		}
+		gocv.Max(acc, img, &acc)
+		img.Close()
+	}
+
+	if ok := gocv.IMWriteWithParams(outputPath, acc, []int{gocv.IMWriteJpegQuality, 90}); !ok {
+		return fmt.Errorf("failed to write star trails: %s", outputPath)
+	}
+	return nil
+}
+
+// GeneratePanoramic creates a panoramic image by averaging (mean stacking) all frames.
+// This produces a smooth average of the night sky.
+func GeneratePanoramic(jpegPaths []string, outputPath string) error {
+	if len(jpegPaths) == 0 {
+		return fmt.Errorf("no frames provided for panoramic")
+	}
+
+	// Load first frame and convert to float64 for accumulation
+	first := gocv.IMRead(jpegPaths[0], gocv.IMReadColor)
+	if first.Empty() {
+		return fmt.Errorf("failed to read first frame: %s", jpegPaths[0])
+	}
+
+	acc := gocv.NewMat()
+	defer acc.Close()
+	first.ConvertTo(&acc, gocv.MatTypeCV64FC3)
+	first.Close()
+
+	count := 1
+
+	for _, path := range jpegPaths[1:] {
+		img := gocv.IMRead(path, gocv.IMReadColor)
+		if img.Empty() {
+			img.Close()
+			continue
+		}
+		tmp := gocv.NewMat()
+		img.ConvertTo(&tmp, gocv.MatTypeCV64FC3)
+		gocv.Add(acc, tmp, &acc)
+		tmp.Close()
+		img.Close()
+		count++
+	}
+
+	// Divide by count to get mean
+	acc.DivideFloat(float32(count))
+
+	// Convert back to 8-bit
+	result := gocv.NewMat()
+	defer result.Close()
+	acc.ConvertTo(&result, gocv.MatTypeCV8UC3)
+
+	if ok := gocv.IMWriteWithParams(outputPath, result, []int{gocv.IMWriteJpegQuality, 90}); !ok {
+		return fmt.Errorf("failed to write panoramic: %s", outputPath)
+	}
+	return nil
 }
 
 // applySkyglowReduction removes light pollution gradient by subtracting

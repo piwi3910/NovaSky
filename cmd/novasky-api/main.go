@@ -385,14 +385,19 @@ h1{margin:10px 0;font-size:1.5em}
 		hours := c.QueryInt("hours", 24)
 		var frames []models.Frame
 		since := time.Now().Add(-time.Duration(hours) * time.Hour)
-		db.GetDB().Where("created_at > ?", since).Order("created_at ASC").Find(&frames)
+		db.GetDB().Where("captured_at > ?", since).Order("captured_at ASC").Find(&frames)
 		type Point struct {
-			Time  string  `json:"time"`
-			Value float64 `json:"value"`
+			Time     string  `json:"time"`
+			Exposure float64 `json:"exposure"`
+			Gain     int     `json:"gain"`
 		}
 		points := make([]Point, len(frames))
 		for i, f := range frames {
-			points[i] = Point{Time: f.CreatedAt.Format(time.RFC3339), Value: f.ExposureMs}
+			points[i] = Point{
+				Time:     f.CapturedAt.Format(time.RFC3339),
+				Exposure: f.ExposureMs,
+				Gain:     f.Gain,
+			}
 		}
 		return c.JSON(points)
 	})
@@ -469,6 +474,132 @@ h1{margin:10px 0;font-size:1.5em}
 		return c.SendFile(path)
 	})
 
+	// Keograms list
+	app.Get("/api/keograms", func(c *fiber.Ctx) error {
+		dir := "/home/piwi/novasky-data/keograms"
+		entries, _ := filepath.Glob(filepath.Join(dir, "*.jpg"))
+		type Item struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+		}
+		var items []Item
+		for _, e := range entries {
+			fi, _ := os.Stat(e)
+			if fi != nil {
+				items = append(items, Item{
+					Name: filepath.Base(e),
+					Path: e,
+					Size: fi.Size(),
+				})
+			}
+		}
+		return c.JSON(fiber.Map{"keograms": items})
+	})
+
+	// Serve keogram image
+	app.Get("/api/keograms/:name", func(c *fiber.Ctx) error {
+		path := filepath.Join("/home/piwi/novasky-data/keograms", c.Params("name"))
+		return c.SendFile(path)
+	})
+
+	// Star trails list
+	app.Get("/api/startrails", func(c *fiber.Ctx) error {
+		dir := "/home/piwi/novasky-data/startrails"
+		entries, _ := filepath.Glob(filepath.Join(dir, "*.jpg"))
+		type Item struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+		}
+		var items []Item
+		for _, e := range entries {
+			fi, _ := os.Stat(e)
+			if fi != nil {
+				items = append(items, Item{
+					Name: filepath.Base(e),
+					Path: e,
+					Size: fi.Size(),
+				})
+			}
+		}
+		return c.JSON(fiber.Map{"startrails": items})
+	})
+
+	// Serve star trails image
+	app.Get("/api/startrails/:name", func(c *fiber.Ctx) error {
+		path := filepath.Join("/home/piwi/novasky-data/startrails", c.Params("name"))
+		return c.SendFile(path)
+	})
+
+	// Panoramic list
+	app.Get("/api/panoramic", func(c *fiber.Ctx) error {
+		dir := "/home/piwi/novasky-data/panoramic"
+		entries, _ := filepath.Glob(filepath.Join(dir, "*.jpg"))
+		type Item struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+		}
+		var items []Item
+		for _, e := range entries {
+			fi, _ := os.Stat(e)
+			if fi != nil {
+				items = append(items, Item{
+					Name: filepath.Base(e),
+					Path: e,
+					Size: fi.Size(),
+				})
+			}
+		}
+		return c.JSON(fiber.Map{"panoramic": items})
+	})
+
+	// Serve panoramic image
+	app.Get("/api/panoramic/:name", func(c *fiber.Ctx) error {
+		path := filepath.Join("/home/piwi/novasky-data/panoramic", c.Params("name"))
+		return c.SendFile(path)
+	})
+
+	// Overlay layer config
+	app.Get("/api/overlay/config", func(c *fiber.Ctx) error {
+		raw := cfg.GetRaw("overlay.layers")
+		if raw == nil {
+			// Return defaults — all enabled
+			return c.JSON(fiber.Map{
+				"compass":            true,
+				"grid":               true,
+				"timestamp":          true,
+				"moonPhase":          true,
+				"safetyState":        true,
+				"sensorData":         true,
+				"starLabels":         true,
+				"constellationLines": true,
+			})
+		}
+		return c.Send(raw)
+	})
+
+	app.Put("/api/overlay/config", func(c *fiber.Ctx) error {
+		var layers struct {
+			Compass            *bool `json:"compass"`
+			Grid               *bool `json:"grid"`
+			Timestamp          *bool `json:"timestamp"`
+			MoonPhase          *bool `json:"moonPhase"`
+			SafetyState        *bool `json:"safetyState"`
+			SensorData         *bool `json:"sensorData"`
+			StarLabels         *bool `json:"starLabels"`
+			ConstellationLines *bool `json:"constellationLines"`
+		}
+		if err := c.BodyParser(&layers); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid body"})
+		}
+		if err := cfg.Set("overlay.layers", layers); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(layers)
+	})
+
 	// Overlay data for a frame — returns all detections (stars, meteors, planes, satellites)
 	app.Get("/api/frames/:id/overlay", func(c *fiber.Ctx) error {
 		var detections []models.Detection
@@ -502,7 +633,7 @@ h1{margin:10px 0;font-size:1.5em}
 		}
 
 		// Process with custom params
-		result, err := processing.ProcessFrame(frame.FilePath, stretch, nil)
+		result, err := processing.ProcessFrame(frame.FilePath, stretch, nil, false)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}

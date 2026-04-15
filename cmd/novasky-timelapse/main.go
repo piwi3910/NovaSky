@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/piwi3910/NovaSky/internal/db"
+	"github.com/piwi3910/NovaSky/internal/processing"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
@@ -102,4 +103,34 @@ func generateTimelapse(frames []string) {
 
 	log.Printf("[timelapse] Generated: %s (%d frames)", outputFile, len(frames))
 	os.Remove(listFile)
+
+	// Generate keogram
+	keogramDir := "/home/piwi/novasky-data/keograms"
+	os.MkdirAll(keogramDir, 0755)
+	keogramFile := filepath.Join(keogramDir, fmt.Sprintf("keogram_%s.jpg", time.Now().Format("20060102_150405")))
+	if err := processing.GenerateKeogram(frames, keogramFile); err != nil {
+		log.Printf("[timelapse] Keogram failed: %v", err)
+	} else {
+		log.Printf("[timelapse] Generated keogram: %s", keogramFile)
+	}
+
+	// Generate star trails
+	startrailsDir := "/home/piwi/novasky-data/startrails"
+	os.MkdirAll(startrailsDir, 0755)
+	startrailsFile := filepath.Join(startrailsDir, fmt.Sprintf("startrails_%s.jpg", time.Now().Format("20060102_150405")))
+	if err := processing.GenerateStarTrails(frames, startrailsFile); err != nil {
+		log.Printf("[timelapse] Star trails failed: %v", err)
+	} else {
+		log.Printf("[timelapse] Generated star trails: %s", startrailsFile)
+	}
+
+	// Generate panoramic
+	panoramicDir := "/home/piwi/novasky-data/panoramic"
+	os.MkdirAll(panoramicDir, 0755)
+	panoramicFile := filepath.Join(panoramicDir, fmt.Sprintf("panoramic_%s.jpg", time.Now().Format("20060102_150405")))
+	if err := processing.GeneratePanoramic(frames, panoramicFile); err != nil {
+		log.Printf("[timelapse] Panoramic failed: %v", err)
+	} else {
+		log.Printf("[timelapse] Generated panoramic: %s", panoramicFile)
+	}
 }

@@ -84,8 +84,12 @@ func main() {
 					mask = &maskCfg
 				}
 
+				// Get skyglow config
+				var skyglow bool
+				cfg.Get("imaging.skyglow", &skyglow)
+
 				// Process frame using GoCV/OpenCV debayer
-				result, err := processing.ProcessFrame(filePath, stretch, mask)
+				result, err := processing.ProcessFrame(filePath, stretch, mask, skyglow)
 				if err != nil {
 					log.Printf("[processing] Failed to process %s: %v", frameID, err)
 					novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesProcessing, consumerGroup, msg.ID)
