@@ -51,14 +51,15 @@ export function FrameMasking() {
     const r = radius * scale;
 
     if (enabled) {
-      // Semi-transparent overlay outside circle
-      ctx.fillStyle = "rgba(0,0,0,0.5)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.globalCompositeOperation = "destination-out";
+      // Darken outside circle using clip path inversion
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.arc(cx, cy, r, 0, 2 * Math.PI, true); // counter-clockwise = invert
+      ctx.closePath();
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.fill();
-      ctx.globalCompositeOperation = "source-over";
+      ctx.restore();
     }
 
     // Circle outline — always visible
