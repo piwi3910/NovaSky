@@ -36,7 +36,10 @@ export function Dashboard() {
     // The displayed image has been rotated by rotDeg degrees
     const cx = imgW / 2;
     const cy = imgH / 2;
-    const rad = -rotDeg * Math.PI / 180;
+    // Processing pipeline: GetRotationMatrix2D(center, -rotDeg, 1.0)
+    // OpenCV angle is counter-clockwise, so -rotDeg = rotDeg clockwise
+    // To map original coords → rotated display: apply same clockwise rotation
+    const rad = rotDeg * Math.PI / 180;
     const dx = px - cx;
     const dy = py - cy;
     const rx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
