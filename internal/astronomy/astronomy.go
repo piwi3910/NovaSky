@@ -105,16 +105,11 @@ type SunTimes struct {
 func CalculateSunTimes(date time.Time, lat, lon float64) SunTimes {
 	times := SunTimes{}
 
-	// Must use UTC for Julian date calculation
+	// Use Julian day number from Unix timestamp (simple and correct)
 	date = date.UTC()
-	y, m, d := date.Date()
-	if m <= 2 {
-		y--
-		m += 12
-	}
-	jd := float64(int(365.25*float64(y+4716))) + float64(int(30.6001*float64(m+1))) + float64(d) - 1524.5
+	jd := float64(date.Unix())/86400.0 + 2440587.5
 
-	n := jd - 2451545.0 + 0.5 // days since J2000 at noon
+	n := jd - 2451545.0 // days since J2000.0
 
 	// Mean solar noon
 	jStar := n - lon/360.0
