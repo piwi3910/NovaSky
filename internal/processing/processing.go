@@ -77,6 +77,14 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 	}
 	defer rgb.Close()
 
+	// Apply SCNR (remove green cast from color cameras)
+	if bayerPat != "" {
+		applySCNR(&rgb)
+	}
+
+	// Apply noise reduction (currently hardcoded to off)
+	applyNoiseReduction(&rgb, "off", 3)
+
 	// Convert 16-bit to 8-bit based on stretch mode
 	out := gocv.NewMat()
 	defer out.Close()
@@ -208,6 +216,60 @@ func applyAutoStretch(src *gocv.Mat, dst *gocv.Mat) {
 	gocv.Merge(outChannels, dst)
 	for _, ch := range outChannels {
 		ch.Close()
+	}
+}
+
+// applySCNR applies Subtractive Chromatic Noise Reduction (average neutral method).
+// Constrains G channel to not exceed the average of R and B channels.
+// Works on BGR 16-bit Mat.
+func applySCNR(img *gocv.Mat) {
+	// Split into B, G, R channels
+	channels := gocv.Split(*img)
+	defer func() {
+		for _, ch := range channels {
+			ch.Close()
+		}
+	}()
+
+	if len(channels) != 3 {
+		return
+	}
+
+	// B=channels[0], G=channels[1], R=channels[2] (BGR order)
+	// m = (R + B) / 2
+	m := gocv.NewMat()
+	defer m.Close()
+	gocv.AddWeighted(channels[2], 0.5, channels[0], 0.5, 0, &m)
+
+	// G = min(G, m)
+	gocv.Min(channels[1], m, &channels[1])
+
+	gocv.Merge(channels, img)
+}
+
+// applyNoiseReduction applies spatial noise filtering.
+func applyNoiseReduction(img *gocv.Mat, filterType string, kernelSize int) {
+	if filterType == "" || filterType == "off" {
+		return
+	}
+	if kernelSize <= 0 {
+		kernelSize = 3
+	}
+	// Ensure odd kernel size
+	if kernelSize%2 == 0 {
+		kernelSize++
+	}
+
+	switch filterType {
+	case "gaussian":
+		gocv.GaussianBlur(*img, img, image.Pt(kernelSize, kernelSize), 0, 0, gocv.BorderDefault)
+	case "bilateral":
+		dst := gocv.NewMat()
+		defer dst.Close()
+		gocv.BilateralFilter(*img, &dst, kernelSize, float64(kernelSize)*2, float64(kernelSize)*2)
+		dst.CopyTo(img)
+	case "median":
+		gocv.MedianBlur(*img, img, kernelSize)
 	}
 }
 
