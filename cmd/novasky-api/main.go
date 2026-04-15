@@ -68,7 +68,7 @@ func main() {
 
 		db.GetDB().Order("evaluated_at DESC").First(&safety)
 		db.GetDB().Order("analyzed_at DESC").First(&analysis)
-		db.GetDB().Order("created_at DESC").First(&frame)
+		db.GetDB().Where("jpeg_path IS NOT NULL AND jpeg_path != ''").Order("created_at DESC").First(&frame)
 
 		return c.JSON(fiber.Map{
 			"safety":    safety,
