@@ -211,9 +211,8 @@ func DebayerToGray(fitsPath string, outputPath string) error {
 	defer gray.Close()
 	gocv.CvtColor(rgb, &gray, gocv.ColorBGRToGray)
 
-	// Step 4: Percentile stretch to 8-bit
-	// Can't use NormMinMax — hot pixels set max too high, compressing everything.
-	// Instead: sample pixels, find 1st and 99th percentile, stretch that range to 0-255.
+	// Step 4: Stretch to 8-bit keeping background DARK and stars BRIGHT
+	// Sample to find background level (median) and stretch above it
 	nPix := gray.Rows() * gray.Cols()
 	step := 1
 	if nPix > 100000 {
@@ -226,27 +225,22 @@ func DebayerToGray(fitsPath string, outputPath string) error {
 		}
 	}
 	sort.Ints(samples)
-	lo := float64(samples[len(samples)/100])        // 1st percentile
-	hi := float64(samples[len(samples)*99/100])      // 99th percentile
-	if hi <= lo {
-		hi = lo + 1
+	bg := float64(samples[len(samples)/2])            // median = background
+	hi := float64(samples[len(samples)*999/1000])      // 99.9th percentile = bright stars
+	if hi <= bg {
+		hi = bg + 1000
 	}
-	scale := 255.0 / (hi - lo)
+	// Map: bg → 10 (dark gray, not black), hi → 250
+	// Everything below bg clips to near-black, stars stretch to bright
+	scale := 240.0 / (hi - bg)
+	offset := 10.0 - bg*scale
 
 	out := gocv.NewMat()
 	defer out.Close()
-	// (pixel - lo) * scale, clamp to 0-255
-	gray.ConvertToWithParams(&out, gocv.MatTypeCV8UC1, float32(scale), float32(-lo*scale))
+	gray.ConvertToWithParams(&out, gocv.MatTypeCV8UC1, float32(scale), float32(offset))
 
-	// Step 5: CLAHE — local contrast enhancement makes faint stars pop
-	clahe := gocv.NewCLAHEWithParams(8.0, image.Pt(8, 8))
-	defer clahe.Close()
-	enhanced := gocv.NewMat()
-	defer enhanced.Close()
-	clahe.Apply(out, &enhanced)
-
-	// Save
-	if ok := gocv.IMWrite(outputPath, enhanced); !ok {
+	// Save — no CLAHE, keep the natural contrast for ASTAP
+	if ok := gocv.IMWrite(outputPath, out); !ok {
 		return fmt.Errorf("failed to write %s", outputPath)
 	}
 	return nil
