@@ -7,6 +7,7 @@ export function SettingsCamera() {
   const [driver, setDriver] = useState(""); const [device, setDevice] = useState("");
   const [latitude, setLatitude] = useState(0); const [longitude, setLongitude] = useState(0); const [elevation, setElevation] = useState(0);
   const [gpsdEnabled, setGpsdEnabled] = useState(false);
+  const [focalLength, setFocalLength] = useState(0); const [focalRatio, setFocalRatio] = useState(0);
   const [devices, setDevices] = useState<string[]>([]); const [saving, setSaving] = useState(false);
   const [loadingGps, setLoadingGps] = useState(false);
   const initialized = useRef(false);
@@ -21,6 +22,9 @@ export function SettingsCamera() {
       setLatitude(loc.latitude ?? 0); setLongitude(loc.longitude ?? 0); setElevation(loc.elevation ?? 0);
       const gpsd = (configData["location.gpsd"] ?? {}) as any;
       setGpsdEnabled(gpsd.enabled ?? false);
+      const optics = (configData["camera.optics"] ?? {}) as any;
+      setFocalLength(optics.focalLength ?? 0);
+      setFocalRatio(optics.focalRatio ?? 0);
       fetch("/api/devices").then(r => r.json()).then(d => {
         const list: string[] = d.devices ?? [];
         if (savedDevice && !list.includes(savedDevice)) list.unshift(savedDevice);
@@ -49,6 +53,7 @@ export function SettingsCamera() {
       fetch("/api/config/camera.driver", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: driver }) }),
       fetch("/api/config/camera.device", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: device }) }),
       fetch("/api/config/location", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { latitude, longitude, elevation } }) }),
+      fetch("/api/config/camera.optics", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { focalLength, focalRatio } }) }),
     ]); setSaving(false);
   }
 
@@ -71,6 +76,13 @@ export function SettingsCamera() {
         <Group>
           <Select data={devices.map(d => ({ value: d, label: d }))} value={device} onChange={(v) => setDevice(v ?? "")} placeholder="Select..." style={{ flex: 1 }} />
           <Button onClick={() => fetch("/api/devices").then(r=>r.json()).then(d=>setDevices(d.devices??[]))} variant="outline">Refresh</Button>
+        </Group>
+      </Card>
+      <Card shadow="sm" padding="lg" withBorder>
+        <Text fw={500} mb="sm">Optics</Text>
+        <Group grow>
+          <NumberInput label="Focal Length (mm)" value={focalLength} onChange={v => setFocalLength(Number(v))} min={0} max={10000} decimalScale={1} />
+          <NumberInput label="Focal Ratio (f/)" value={focalRatio} onChange={v => setFocalRatio(Number(v))} min={0} max={50} decimalScale={1} step={0.1} />
         </Group>
       </Card>
       <Card shadow="sm" padding="lg" withBorder>
