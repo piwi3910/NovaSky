@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/redis/go-redis/v9 v9.7.3
+	github.com/sixdouglas/suncalc v0.2.0
 	gorm.io/datatypes v1.2.5
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.25.12
