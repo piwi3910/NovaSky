@@ -42,6 +42,7 @@ func main() {
 				frameID := msg.Values["frameId"].(string)
 				log.Printf("[overlay] Frame %s received (stub)", frameID)
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesOverlay, consumerGroup, msg.ID)
+				novaskyRedis.ReportHealth(ctx, "overlay")
 			}
 		}
 	}

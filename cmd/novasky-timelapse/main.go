@@ -43,6 +43,7 @@ func main() {
 				log.Printf("[timelapse] Frame %s collected", frameID)
 				// TODO: accumulate frames, generate timelapse at dawn
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesTimelapse, consumerGroup, msg.ID)
+				novaskyRedis.ReportHealth(ctx, "timelapse")
 			}
 		}
 	}

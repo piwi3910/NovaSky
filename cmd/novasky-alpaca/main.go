@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
+	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
 var (
@@ -29,6 +32,14 @@ func alpacaResponse(value interface{}, clientTxID int, errNum int, errMsg string
 func main() {
 	log.Println("[alpaca] Starting...")
 	db.Init()
+	novaskyRedis.Init()
+
+	go func() {
+		for {
+			novaskyRedis.ReportHealth(context.Background(), "alpaca")
+			time.Sleep(30 * time.Second)
+		}
+	}()
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})
 

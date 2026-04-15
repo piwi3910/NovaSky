@@ -71,6 +71,7 @@ func main() {
 				}
 
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesExport, consumerGroup, msg.ID)
+				novaskyRedis.ReportHealth(ctx, "export")
 				log.Printf("[export] Exported frame to %s", dateDir)
 			}
 		}

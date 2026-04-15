@@ -6,19 +6,29 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
+	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
 func main() {
 	log.Println("[stream] Starting...")
 	db.Init()
+	novaskyRedis.Init()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
+
+	go func() {
+		for {
+			novaskyRedis.ReportHealth(context.Background(), "stream")
+			time.Sleep(30 * time.Second)
+		}
+	}()
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})
 

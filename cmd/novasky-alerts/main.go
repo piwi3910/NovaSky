@@ -49,6 +49,7 @@ func main() {
 
 				// TODO: webhook, telegram, email dispatch
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamAlertsDispatch, consumerGroup, msg.ID)
+				novaskyRedis.ReportHealth(ctx, "alerts")
 			}
 		}
 	}
