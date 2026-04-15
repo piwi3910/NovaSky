@@ -26,8 +26,24 @@ export function Dashboard() {
   const hasJpeg = status?.frame?.jpegPath;
   const { data: overlayData } = useApi<any>(frameId ? `/api/frames/${frameId}/overlay` : "", 10000);
 
-  // Detection now runs on the processed JPEG — star coords already match displayed image
-  const transformPoint = useCallback((px: number, py: number, imgW: number, _imgH: number, dispW: number, _dispH: number) => {
+  // Star detection runs on raw FITS (unrotated) — need to rotate coords to match displayed JPEG
+  // Constellation/planet projections already include northAngle — no extra transform needed
+  const { data: calData } = useApi<any>("/api/platesolve", 60000);
+  const rotDeg = calData?.solved ? calData.northAngle : 0;
+
+  const transformStarPoint = useCallback((px: number, py: number, imgW: number, imgH: number, dispW: number) => {
+    // Rotate point by northAngle around image center (same as processing pipeline)
+    const cx = imgW / 2, cy = imgH / 2;
+    const rad = -rotDeg * Math.PI / 180;
+    const dx = px - cx, dy = py - cy;
+    const rx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
+    const ry = dx * Math.sin(rad) + dy * Math.cos(rad) + cy;
+    const scale = dispW / imgW;
+    return { x: rx * scale, y: ry * scale };
+  }, [rotDeg]);
+
+  // Constellation/planet coords are already projected with northAngle — just scale
+  const scalePoint = useCallback((px: number, py: number, imgW: number, dispW: number) => {
     const scale = dispW / imgW;
     return { x: px * scale, y: py * scale };
   }, []);
@@ -72,7 +88,7 @@ export function Dashboard() {
         ctx.lineWidth = 1;
         const scale = dispW / imgW;
         for (const s of data) {
-          const { x, y } = transformPoint(s.x, s.y, imgW, imgH, dispW, dispH);
+          const { x, y } = transformStarPoint(s.x, s.y, imgW, imgH, dispW);
           const r = Math.max(3, (s.hfr || 3) * scale);
           ctx.beginPath();
           ctx.arc(x + offsetX, y + offsetY, r, 0, 2 * Math.PI);
@@ -88,12 +104,12 @@ export function Dashboard() {
         ctx.fillStyle = "rgba(100, 150, 255, 0.8)";
         for (const c of data) {
           if (c.name && c.lines?.length > 0) {
-            const p = transformPoint(c.lines[0].x1, c.lines[0].y1, imgW, imgH, dispW, dispH);
+            const p = scalePoint(c.lines[0].x1, c.lines[0].y1, imgW, dispW);
             ctx.fillText(c.name, p.x + offsetX, p.y + offsetY - 5);
           }
           for (const line of (c.lines || [])) {
-            const p1 = transformPoint(line.x1, line.y1, imgW, imgH, dispW, dispH);
-            const p2 = transformPoint(line.x2, line.y2, imgW, imgH, dispW, dispH);
+            const p1 = scalePoint(line.x1, line.y1, imgW, dispW);
+            const p2 = scalePoint(line.x2, line.y2, imgW, dispW);
             ctx.beginPath();
             ctx.moveTo(p1.x + offsetX, p1.y + offsetY);
             ctx.lineTo(p2.x + offsetX, p2.y + offsetY);
@@ -108,7 +124,7 @@ export function Dashboard() {
         ctx.fillStyle = "rgba(255, 200, 50, 0.9)";
         for (const p of data) {
           if (p.pixelX && p.pixelY) {
-            const { x, y } = transformPoint(p.pixelX, p.pixelY, imgW, imgH, dispW, dispH);
+            const { x, y } = scalePoint(p.pixelX, p.pixelY, imgW, dispW);
             ctx.beginPath();
             ctx.arc(x + offsetX, y + offsetY, 5, 0, 2 * Math.PI);
             ctx.fill();
@@ -117,7 +133,7 @@ export function Dashboard() {
         }
       }
     }
-  }, [overlayData, showOverlay, transformPoint]);
+  }, [overlayData, showOverlay, transformStarPoint, scalePoint]);
 
   useEffect(() => { drawOverlay(); }, [drawOverlay]);
 

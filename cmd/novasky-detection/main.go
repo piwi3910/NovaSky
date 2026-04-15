@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
 	"log"
 	"math"
 	"os"
@@ -73,11 +74,6 @@ func main() {
 			for _, msg := range stream.Messages {
 				frameID := msg.Values["frameId"].(string)
 				filePath := msg.Values["filePath"].(string)
-				jpegPath := ""
-				if jp, ok := msg.Values["jpegPath"].(string); ok {
-					jpegPath = jp
-				}
-
 				// Read FITS for cloud/brightness analysis
 				data, err := os.ReadFile(filePath)
 				if err != nil {
@@ -133,20 +129,55 @@ func main() {
 				}
 				db.GetDB().Create(&result)
 
-				// Night frame analysis — use processed JPEG (already rotated/stretched)
+				// Night frame analysis
 				if brightness < 0.3 {
-					// Get image size from JPEG for constellation projection
-					imageSize := 3552
-					if jpegPath != "" {
-						jpegMat := gocv.IMRead(jpegPath, gocv.IMReadGrayScale)
-						if !jpegMat.Empty() {
-							imageSize = jpegMat.Cols()
+					header := fits.ParseHeader(data)
+					imageSize := header.NAXIS1
+					if imageSize <= 0 {
+						imageSize = 3552
+					}
 
-							// Star detection on processed JPEG — coords match displayed image
-							if detCfg.StarsEnabled {
-								stars := detection.DetectStars(jpegMat, detCfg.StarMinBrightness)
+					// Star detection — process raw FITS optimized for star visibility
+					// Independent from display JPEG: debayer → grayscale → percentile stretch
+					if detCfg.StarsEnabled {
+						pixels := fits.ReadPixels16(data, header)
+						if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
+							// Create 16-bit grayscale from raw Bayer (simple 2x2 average, no full debayer needed)
+							w, h := header.NAXIS1, header.NAXIS2
+							grayPixels := make([]byte, (w/2)*(h/2))
+							for r := 0; r < h-1; r += 2 {
+								for c := 0; c < w-1; c += 2 {
+									// Average 2x2 Bayer block → one grayscale pixel
+									v := (int(pixels[r*w+c]) + int(pixels[r*w+c+1]) +
+										int(pixels[(r+1)*w+c]) + int(pixels[(r+1)*w+c+1])) / 4
+									// Scale to 8-bit with simple stretch
+									v8 := v >> 8 // divide by 256
+									if v8 > 255 {
+										v8 = 255
+									}
+									grayPixels[(r/2)*(w/2)+(c/2)] = byte(v8)
+								}
+							}
 
-								// Filter out stars in the masked area (outside mask circle)
+							grayMat, err := gocv.NewMatFromBytes(h/2, w/2, gocv.MatTypeCV8UC1, grayPixels)
+							if err == nil {
+								// Apply CLAHE for optimal star detection contrast
+								clahe := gocv.NewCLAHEWithParams(4.0, image.Pt(8, 8))
+								enhanced := gocv.NewMat()
+								clahe.Apply(grayMat, &enhanced)
+								clahe.Close()
+								grayMat.Close()
+
+								stars := detection.DetectStars(enhanced, detCfg.StarMinBrightness)
+								enhanced.Close()
+
+								// Scale coordinates back to full image size
+								for i := range stars {
+									stars[i].X *= 2
+									stars[i].Y *= 2
+								}
+
+								// Filter by mask
 								var maskCfg struct {
 									Enabled bool `json:"enabled"`
 									CenterX int  `json:"centerX"`
@@ -158,15 +189,14 @@ func main() {
 									var filtered []detection.Star
 									cx := float64(maskCfg.CenterX)
 									cy := float64(maskCfg.CenterY)
-									r := float64(maskCfg.Radius)
+									rd := float64(maskCfg.Radius)
 									for _, s := range stars {
 										dx := s.X - cx
 										dy := s.Y - cy
-										if dx*dx+dy*dy <= r*r {
+										if dx*dx+dy*dy <= rd*rd {
 											filtered = append(filtered, s)
 										}
 									}
-									log.Printf("[detection] Mask filter: %d → %d stars", len(stars), len(filtered))
 									stars = filtered
 								}
 
@@ -180,7 +210,6 @@ func main() {
 									log.Printf("[detection] Found %d stars", len(stars))
 								}
 							}
-							jpegMat.Close()
 						}
 					}
 
