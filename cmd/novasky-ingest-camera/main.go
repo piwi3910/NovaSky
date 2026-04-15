@@ -154,8 +154,9 @@ func main() {
 		}
 	})
 
-	// Backpressure monitoring
+	// Backpressure monitoring — reset to normal on startup so stale "paused" state doesn't block capture
 	backpressure := "normal"
+	novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "normal")
 	go func() {
 		sub := novaskyRedis.Client.Subscribe(ctx, novaskyRedis.ChannelBackpressure)
 		ch := sub.Channel()
