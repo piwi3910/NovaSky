@@ -1,0 +1,127 @@
+package main
+
+import (
+	"context"
+	"encoding/binary"
+	"log"
+	"math"
+	"os"
+	"os/signal"
+	"sort"
+	"syscall"
+
+	"github.com/piwi3910/NovaSky/internal/db"
+	"github.com/piwi3910/NovaSky/internal/models"
+	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
+)
+
+const consumerGroup = "detection"
+
+func main() {
+	log.Println("[detection] Starting...")
+	db.Init()
+	novaskyRedis.Init()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
+
+	novaskyRedis.CreateConsumerGroup(ctx, novaskyRedis.StreamFramesDetection, consumerGroup)
+	log.Println("[detection] Worker started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		streams, err := novaskyRedis.ReadFromGroup(ctx, novaskyRedis.StreamFramesDetection, consumerGroup, "detection-1", 1)
+		if err != nil {
+			continue
+		}
+
+		for _, stream := range streams {
+			for _, msg := range stream.Messages {
+				frameID := msg.Values["frameId"].(string)
+				filePath := msg.Values["filePath"].(string)
+
+				// Read FITS and analyze
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					log.Printf("[detection] Read error: %v", err)
+					novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesDetection, consumerGroup, msg.ID)
+					continue
+				}
+
+				brightness, cloudCover := analyzeFrame(data)
+				skyQuality := classifyQuality(cloudCover)
+
+				result := models.AnalysisResult{
+					FrameID:    frameID,
+					CloudCover: cloudCover,
+					Brightness: brightness,
+					SkyQuality: skyQuality,
+				}
+				db.GetDB().Create(&result)
+
+				// Trigger policy evaluation
+				novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]interface{}{
+					"trigger": "detection", "sourceId": result.ID,
+				})
+
+				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesDetection, consumerGroup, msg.ID)
+				log.Printf("[detection] Frame %s: cloud=%.0f%% sky=%s", frameID, cloudCover*100, skyQuality)
+			}
+		}
+	}
+}
+
+func analyzeFrame(fitsData []byte) (brightness, cloudCover float64) {
+	// Find data section
+	headerEnd := 0
+	for i := 0; i < len(fitsData)-80; i += 80 {
+		if string(fitsData[i:i+3]) == "END" {
+			headerEnd = ((i/80 + 1) * 80)
+			headerEnd = ((headerEnd + 2879) / 2880) * 2880
+			break
+		}
+	}
+	if headerEnd == 0 || headerEnd >= len(fitsData) {
+		return 0, 0
+	}
+
+	pixelData := fitsData[headerEnd:]
+	step := 1
+	nPixels := len(pixelData) / 2
+	if nPixels > 50000 {
+		step = nPixels / 50000
+	}
+
+	var values []uint16
+	for i := 0; i < len(pixelData)-1; i += 2 * step {
+		values = append(values, binary.BigEndian.Uint16(pixelData[i:i+2]))
+	}
+	if len(values) == 0 {
+		return 0, 0
+	}
+
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	median := float64(values[len(values)/2])
+	brightness = median / 65535.0
+	cloudCover = math.Min(1.0, brightness*2)
+	return
+}
+
+func classifyQuality(cloudCover float64) string {
+	if cloudCover > 0.8 {
+		return "UNUSABLE"
+	}
+	if cloudCover > 0.5 {
+		return "POOR"
+	}
+	if cloudCover > 0.2 {
+		return "GOOD"
+	}
+	return "EXCELLENT"
+}
