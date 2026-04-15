@@ -6,6 +6,7 @@ require (
 	github.com/gofiber/contrib/websocket v1.3.2
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/redis/go-redis/v9 v9.7.3
+	gocv.io/x/gocv v0.37.0
 	gorm.io/datatypes v1.2.5
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.25.12

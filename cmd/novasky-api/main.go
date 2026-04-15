@@ -468,6 +468,20 @@ h1{margin:10px 0;font-size:1.5em}
 		return c.SendFile(path)
 	})
 
+	// Overlay data for a frame — returns all detections (stars, meteors, planes, satellites)
+	app.Get("/api/frames/:id/overlay", func(c *fiber.Ctx) error {
+		var detections []models.Detection
+		db.GetDB().Where("frame_id = ?", c.Params("id")).Find(&detections)
+		return c.JSON(fiber.Map{"overlays": detections})
+	})
+
+	// Latest detected stars
+	app.Get("/api/stars", func(c *fiber.Ctx) error {
+		var det models.Detection
+		db.GetDB().Where("type = ?", "stars").Order("created_at DESC").First(&det)
+		return c.JSON(det)
+	})
+
 	// Astronomy data
 	app.Get("/api/astronomy", func(c *fiber.Ctx) error {
 		var loc struct {

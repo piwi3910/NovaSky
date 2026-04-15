@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -12,7 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"gocv.io/x/gocv"
+
 	"github.com/piwi3910/NovaSky/internal/db"
+	"github.com/piwi3910/NovaSky/internal/detection"
+	"github.com/piwi3910/NovaSky/internal/fits"
 	"github.com/piwi3910/NovaSky/internal/models"
 	"github.com/piwi3910/NovaSky/internal/platesolve"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
@@ -81,6 +86,31 @@ func main() {
 				}
 				db.GetDB().Create(&result)
 
+				// Star detection (night frames only)
+				if brightness < 0.2 {
+					header := fits.ParseHeader(data)
+					pixels := fits.ReadPixels16(data, header)
+					if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
+						mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
+						if err == nil {
+							stars := detection.DetectStars(mat, 200)
+							mat.Close()
+							if len(stars) > 0 {
+								starsJSON, _ := json.Marshal(stars)
+								db.GetDB().Create(&models.Detection{
+									FrameID: frameID,
+									Type:    "stars",
+									Data:    starsJSON,
+								})
+								log.Printf("[detection] Found %d stars", len(stars))
+							}
+						}
+					}
+				}
+
+				// Fetch TLE data periodically (non-blocking)
+				go detection.FetchTLEs() //nolint:errcheck
+
 				// Plate solve (once, or periodically)
 				if platesolve.GetCachedWCS() == nil {
 					go func(fp string) {
@@ -111,6 +141,15 @@ func main() {
 			}
 		}
 	}
+}
+
+func uint16ToBytes(data []uint16) []byte {
+	buf := make([]byte, len(data)*2)
+	for i, v := range data {
+		buf[i*2] = byte(v)
+		buf[i*2+1] = byte(v >> 8)
+	}
+	return buf
 }
 
 func analyzeFrame(fitsData []byte) (brightness, cloudCover float64) {
