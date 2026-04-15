@@ -82,8 +82,8 @@ func SolveWithHint(fitsPath string, raHours, spd, searchRadius, fov float64) (*W
 		"-spd", fmt.Sprintf("%.1f", spd),
 		"-d", "/opt/astap",
 		"-z", "0",
-		"-s", "100",
-		"-t", "0.01",
+		"-s", "500",
+		"-t", "0.007",
 		"-speed", "slow",
 		"-progress",
 	}
@@ -160,12 +160,10 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 		hasW08 = true
 	}
 
-	// Always crop center region for plate solving:
-	// - Removes horizon/ground from the image (confuses star detection)
-	// - Zenith area has minimal fisheye distortion
-	// - Works with both W08 (wide) and D05 (narrow) databases
-	// Use 50% of image width — large enough for stars, excludes horizon
-	cropSize := imageWidth / 2
+	// Crop center 25% — small enough that fisheye distortion is negligible (~3% at 40° FoV)
+	// and ASTAP can treat it as a flat/gnomonic projection.
+	// 888 pixels is enough resolution for star detection.
+	cropSize := imageWidth / 4
 	solveFov := fullFov * float64(cropSize) / float64(imageWidth)
 
 	// If no W08, crop smaller for D05
@@ -206,39 +204,7 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 	defer os.Remove(croppedPath)
 	solvePath := croppedPath
 
-	// De-fisheye: convert equidistant fisheye crop to rectilinear (flat) projection
-	// so ASTAP's quad matching works correctly
-	flatPath := strings.TrimSuffix(croppedPath, ".jpg") + "_flat.jpg"
-	halfFovRad := (solveFov / 2.0) * math.Pi / 180.0
-	// barrel distortion correction: map equidistant → rectilinear
-	// For equidistant fisheye: r_fisheye = f * theta
-	// For rectilinear: r_rect = f * tan(theta)
-	// We use ImageMagick barrel distortion to correct
-	// The distortion coefficients approximate the equidistant→rectilinear transform
-	// a,b,c,d coefficients for -distort Barrel: r_src = r_dest * (a*r^3 + b*r^2 + c*r + d)
-	// For equidistant to rectilinear: ratio = theta / tan(theta)
-	// At the edge (r=1): ratio = halfFovRad / tan(halfFovRad)
-	ratio := halfFovRad / math.Tan(halfFovRad)
-	// Approximate with barrel: d=ratio, c=1-ratio (linear blend)
-	a := 0.0
-	b := 0.0
-	c := 1.0 - ratio
-	d := ratio
-	barrelArgs := fmt.Sprintf("%.6f %.6f %.6f %.6f", a, b, c, d)
-	logFn(fmt.Sprintf("De-fisheye: barrel correction (ratio=%.4f, coeffs=%s)", ratio, barrelArgs))
-
-	dfCmd := exec.Command("convert", croppedPath,
-		"-distort", "Barrel", barrelArgs,
-		flatPath)
-	if out, err := dfCmd.CombinedOutput(); err != nil {
-		logFn(fmt.Sprintf("Warning: de-fisheye failed, using crop as-is: %s", string(out)))
-	} else {
-		defer os.Remove(flatPath)
-		solvePath = flatPath
-		logFn("De-fisheyed to rectilinear projection")
-	}
-
-	logFn(fmt.Sprintf("Ready to solve: %s (%dx%d, %.1f° FoV)", solvePath, cropSize, cropSize, solveFov))
+	logFn(fmt.Sprintf("Ready to solve: %s (%dx%d, %.1f° FoV — distortion negligible at this crop)", solvePath, cropSize, cropSize, solveFov))
 
 	// Calculate zenith position from observer location for search hint
 	// Zenith RA = Local Sidereal Time, Zenith Dec = Latitude
