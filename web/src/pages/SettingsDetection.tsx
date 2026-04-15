@@ -14,7 +14,6 @@ export function SettingsDetection() {
   const [satellitesEnabled, setSatellitesEnabled] = useState(false);
   const [constellationsEnabled, setConstellationsEnabled] = useState(true);
   const [planetsEnabled, setPlanetsEnabled] = useState(true);
-  const [plateSolveEnabled, setPlateSolveEnabled] = useState(true);
   const [cloudThreshold, setCloudThreshold] = useState(80);
   const [saving, setSaving] = useState(false);
   const initialized = useRef(false);
@@ -33,7 +32,6 @@ export function SettingsDetection() {
       if (det.satellitesEnabled !== undefined) setSatellitesEnabled(det.satellitesEnabled);
       if (det.constellationsEnabled !== undefined) setConstellationsEnabled(det.constellationsEnabled);
       if (det.planetsEnabled !== undefined) setPlanetsEnabled(det.planetsEnabled);
-      if (det.plateSolveEnabled !== undefined) setPlateSolveEnabled(det.plateSolveEnabled);
       if (det.cloudThreshold) setCloudThreshold(det.cloudThreshold);
     }
   }, [configData]);
@@ -47,7 +45,7 @@ export function SettingsDetection() {
         value: {
           cloudEnabled, sqmEnabled, starsEnabled, starMinBrightness,
           meteorsEnabled, planesEnabled, planesUrl, satellitesEnabled,
-          constellationsEnabled, planetsEnabled, plateSolveEnabled, cloudThreshold,
+          constellationsEnabled, planetsEnabled, cloudThreshold,
         },
       }),
     });
@@ -90,7 +88,6 @@ export function SettingsDetection() {
         <Stack gap="xs">
           <Switch label="Constellation projection" checked={constellationsEnabled} onChange={e => setConstellationsEnabled(e.currentTarget.checked)} description="Project constellation lines onto the all-sky image" />
           <Switch label="Planet positions" checked={planetsEnabled} onChange={e => setPlanetsEnabled(e.currentTarget.checked)} description="Compute positions of Mercury through Saturn" />
-          <Switch label="Plate solving (ASTAP)" checked={plateSolveEnabled} onChange={e => setPlateSolveEnabled(e.currentTarget.checked)} description="Solve frame astrometry for precise sky coordinates" />
         </Stack>
       </Card>
 
