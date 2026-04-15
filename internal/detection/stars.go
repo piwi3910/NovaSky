@@ -35,14 +35,16 @@ func DetectStars(img gocv.Mat, minBrightness float64) []Star {
 		gray.CopyTo(&gray8)
 	}
 
-	// Threshold to find bright points
+	// Find stars using adaptive threshold — works regardless of overall brightness
+	// This detects pixels that are brighter than their local neighborhood
 	thresh := gocv.NewMat()
 	defer thresh.Close()
-	threshVal := minBrightness
-	if threshVal <= 0 {
-		threshVal = 200
+	if minBrightness > 0 && minBrightness < 255 {
+		gocv.Threshold(gray8, &thresh, float32(minBrightness), 255, gocv.ThresholdBinary)
+	} else {
+		// Adaptive: each pixel compared to mean of 31x31 neighborhood, must be 15 above
+		gocv.AdaptiveThreshold(gray8, &thresh, 255, gocv.AdaptiveThresholdMean, gocv.ThresholdBinary, 31, -15)
 	}
-	gocv.Threshold(gray8, &thresh, float32(threshVal), 255, gocv.ThresholdBinary)
 
 	// Find contours
 	contours := gocv.FindContours(thresh, gocv.RetrievalExternal, gocv.ChainApproxSimple)

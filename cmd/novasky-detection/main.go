@@ -111,9 +111,8 @@ func main() {
 					detCfg.PlanetsEnabled = true
 					detCfg.PlateSolveEnabled = true
 				}
-				if detCfg.StarMinBrightness <= 0 {
-					detCfg.StarMinBrightness = 200
-				}
+				// StarMinBrightness 0 = adaptive threshold (recommended)
+				// Set to a value 1-255 for fixed threshold
 
 				startTime := time.Now()
 				brightness, cloudCover := analyzeFrame(data)
