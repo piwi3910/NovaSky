@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/jpeg"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,14 +66,10 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 	var rgb gocv.Mat
 
 	if code, ok := cfaMap[bayerPat]; ok {
-		// Debayer using OpenCV
-		bgr := gocv.NewMat()
-		defer bgr.Close()
-		gocv.CvtColor(mat, &bgr, code)
-
-		// BGR to RGB
+		// Debayer using OpenCV — output is BGR (OpenCV native)
 		rgb = gocv.NewMat()
-		gocv.CvtColor(bgr, &rgb, gocv.ColorBGRToRGB)
+		gocv.CvtColor(mat, &rgb, code)
+		// Keep in BGR — we'll use IMWrite which expects BGR
 	} else {
 		// Mono camera — convert to 3-channel
 		rgb = gocv.NewMat()
@@ -104,23 +98,10 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 		applyMaskCV(&out, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
 	}
 
-	// Save JPEG
+	// Save JPEG using OpenCV IMWrite (handles BGR natively)
 	jpegPath := strings.TrimSuffix(fitsPath, filepath.Ext(fitsPath)) + ".jpg"
-
-	// Convert to Go image for JPEG encoding (GoCV's IMWrite could also work)
-	img, err := out.ToImage()
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert to image: %w", err)
-	}
-
-	f, err := os.Create(jpegPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 90}); err != nil {
-		return nil, err
+	if ok := gocv.IMWriteWithParams(jpegPath, out, []int{gocv.IMWriteJpegQuality, 90}); !ok {
+		return nil, fmt.Errorf("failed to write JPEG: %s", jpegPath)
 	}
 
 	return &ProcessResult{JpegPath: jpegPath}, nil
@@ -246,6 +227,3 @@ func applyMaskCV(img *gocv.Mat, cx, cy, radius int) {
 	masked.CopyTo(img)
 }
 
-// Keep these for potential non-OpenCV fallback
-var _ = math.Abs
-var _ = image.Pt
