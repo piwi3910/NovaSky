@@ -26,12 +26,46 @@ export function Dashboard() {
   const hasJpeg = status?.frame?.jpegPath;
   const { data: overlayData } = useApi<any>(frameId ? `/api/frames/${frameId}/overlay` : "", 10000);
 
+  // Get calibration rotation to transform detection coords
+  const { data: calData } = useApi<any>("/api/platesolve", 60000);
+  const rotDeg = calData?.solved ? calData.northAngle : 0;
+
+  // Transform a point from original image coords to rotated display coords
+  const transformPoint = useCallback((px: number, py: number, imgW: number, imgH: number, dispW: number, dispH: number) => {
+    // Detection coords are in original (unrotated) image space
+    // The displayed image has been rotated by rotDeg degrees
+    const cx = imgW / 2;
+    const cy = imgH / 2;
+    const rad = -rotDeg * Math.PI / 180;
+    const dx = px - cx;
+    const dy = py - cy;
+    const rx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
+    const ry = dx * Math.sin(rad) + dy * Math.cos(rad) + cy;
+    const scale = dispW / imgW;
+    return { x: rx * scale, y: ry * scale };
+  }, [rotDeg]);
+
   const drawOverlay = useCallback(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img || !img.complete || !img.naturalWidth) return;
 
-    const scale = img.clientWidth / img.naturalWidth;
+    // Account for objectFit: contain — image may not fill the entire element
+    const imgAspect = img.naturalWidth / img.naturalHeight;
+    const elemAspect = img.clientWidth / img.clientHeight;
+    let dispW: number, dispH: number, offsetX: number, offsetY: number;
+    if (imgAspect > elemAspect) {
+      dispW = img.clientWidth;
+      dispH = img.clientWidth / imgAspect;
+      offsetX = 0;
+      offsetY = (img.clientHeight - dispH) / 2;
+    } else {
+      dispH = img.clientHeight;
+      dispW = img.clientHeight * imgAspect;
+      offsetX = (img.clientWidth - dispW) / 2;
+      offsetY = 0;
+    }
+
     canvas.width = img.clientWidth;
     canvas.height = img.clientHeight;
     const ctx = canvas.getContext("2d");
@@ -40,59 +74,63 @@ export function Dashboard() {
 
     if (!showOverlay || !overlayData?.overlays) return;
 
+    const imgW = img.naturalWidth;
+    const imgH = img.naturalHeight;
+
     for (const det of overlayData.overlays) {
       const data = Array.isArray(det.data) ? det.data : (typeof det.data === "string" ? JSON.parse(det.data) : []);
 
       if (det.type === "stars") {
         ctx.strokeStyle = "rgba(0, 255, 100, 0.6)";
         ctx.lineWidth = 1;
+        const scale = dispW / imgW;
         for (const s of data) {
-          const x = s.x * scale;
-          const y = s.y * scale;
+          const { x, y } = transformPoint(s.x, s.y, imgW, imgH, dispW, dispH);
           const r = Math.max(3, (s.hfr || 3) * scale);
           ctx.beginPath();
-          ctx.arc(x, y, r, 0, 2 * Math.PI);
+          ctx.arc(x + offsetX, y + offsetY, r, 0, 2 * Math.PI);
           ctx.stroke();
         }
       }
 
       if (det.type === "constellations") {
         ctx.strokeStyle = "rgba(100, 150, 255, 0.5)";
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.5;
+        const scale = dispW / imgW;
         ctx.font = `${Math.max(10, 12 * scale)}px sans-serif`;
         ctx.fillStyle = "rgba(100, 150, 255, 0.8)";
         for (const c of data) {
-          if (c.name) {
-            const firstLine = c.lines?.[0];
-            if (firstLine) {
-              ctx.fillText(c.name, firstLine.x1 * scale, firstLine.y1 * scale - 5);
-            }
+          if (c.name && c.lines?.length > 0) {
+            const p = transformPoint(c.lines[0].x1, c.lines[0].y1, imgW, imgH, dispW, dispH);
+            ctx.fillText(c.name, p.x + offsetX, p.y + offsetY - 5);
           }
           for (const line of (c.lines || [])) {
+            const p1 = transformPoint(line.x1, line.y1, imgW, imgH, dispW, dispH);
+            const p2 = transformPoint(line.x2, line.y2, imgW, imgH, dispW, dispH);
             ctx.beginPath();
-            ctx.moveTo(line.x1 * scale, line.y1 * scale);
-            ctx.lineTo(line.x2 * scale, line.y2 * scale);
+            ctx.moveTo(p1.x + offsetX, p1.y + offsetY);
+            ctx.lineTo(p2.x + offsetX, p2.y + offsetY);
             ctx.stroke();
           }
         }
       }
 
       if (det.type === "planets") {
+        const scale = dispW / imgW;
         ctx.font = `bold ${Math.max(11, 13 * scale)}px sans-serif`;
         ctx.fillStyle = "rgba(255, 200, 50, 0.9)";
         for (const p of data) {
           if (p.pixelX && p.pixelY) {
-            const x = p.pixelX * scale;
-            const y = p.pixelY * scale;
+            const { x, y } = transformPoint(p.pixelX, p.pixelY, imgW, imgH, dispW, dispH);
             ctx.beginPath();
-            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.arc(x + offsetX, y + offsetY, 5, 0, 2 * Math.PI);
             ctx.fill();
-            ctx.fillText(p.name, x + 8, y + 4);
+            ctx.fillText(p.name, x + offsetX + 8, y + offsetY + 4);
           }
         }
       }
     }
-  }, [overlayData, showOverlay]);
+  }, [overlayData, showOverlay, transformPoint]);
 
   useEffect(() => { drawOverlay(); }, [drawOverlay]);
 
