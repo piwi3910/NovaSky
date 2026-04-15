@@ -54,7 +54,6 @@ export function Dashboard() {
             position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
             zIndex: 9999, background: "rgba(0,0,0,0.95)",
             overflow: "auto", cursor: "pointer",
-            display: "flex", justifyContent: "center",
           }}
         >
           <img src={`/api/frames/${frameId}/jpeg`} alt="Full size frame"
