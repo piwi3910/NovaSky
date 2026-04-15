@@ -181,7 +181,7 @@ export function FrameMasking() {
       </Card>
       <Card shadow="sm" padding="lg" withBorder>
         <Text fw={500} mb="sm">Preview</Text>
-        <div ref={containerRef} style={{ maxWidth: 600 }}>
+        <div ref={containerRef} style={{ maxWidth: 600, margin: "0 auto" }}>
           <canvas
             ref={canvasRef}
             style={{ display: "block", cursor: dragging.current ? "grabbing" : "crosshair", borderRadius: 8, background: "#000" }}
