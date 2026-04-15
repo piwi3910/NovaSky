@@ -88,7 +88,7 @@ cd web && pnpm install && pnpm dev
 
 ## Key Design Decisions
 
-- **Bayer debayer mapping** — follows indi-allsky convention (https://github.com/aaronwmorris/indi-allsky): RGGB→BayerBG (R at 1,1 / B at 0,0). Auto white balance (gray world) applied after debayer.
+- **Bayer debayer mapping** — RGGB→BayerGB (verified against camera's own RGB24 output, NOT indi-allsky's BayerBG). Stay in BGR throughout, use GoCV IMWrite for JPEG (never Go's jpeg.Encode which swaps R/B).
 - **Reference skills** — https://github.com/forrestchang/andrej-karpathy-skills
 - **16-bit raw capture** — camera configured for ASI_IMG_RAW16 via INDI
 - **Hot config reload** — config changes via Redis pub/sub, only restart affected components. INDI server only restarts on driver/device change.
