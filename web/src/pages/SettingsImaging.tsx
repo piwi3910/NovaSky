@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Stack, Title, Card, Text, NumberInput, SegmentedControl, Button, Group, Badge, Select } from "@mantine/core";
+import { Stack, Title, Card, Text, NumberInput, SegmentedControl, Button, Group, Badge, Select, Switch } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
 
