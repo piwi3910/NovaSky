@@ -84,7 +84,7 @@ func main() {
 					mask = &maskCfg
 				}
 
-				// Process frame
+				// Process frame using GoCV/OpenCV debayer
 				result, err := processing.ProcessFrame(filePath, stretch, mask)
 				if err != nil {
 					log.Printf("[processing] Failed to process %s: %v", frameID, err)
