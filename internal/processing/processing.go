@@ -160,6 +160,65 @@ func uint16ToBytes(data []uint16) []byte {
 	return buf
 }
 
+// DebayerToGray reads a raw Bayer FITS, debayers it using GoCV, converts to
+// grayscale, and saves as JPEG. Returns the output path. Used for plate solving.
+func DebayerToGray(fitsPath string, outputPath string) error {
+	rawData, err := os.ReadFile(fitsPath)
+	if err != nil {
+		return err
+	}
+
+	header := fits.ParseHeader(rawData)
+	pixels := fits.ReadPixels16(rawData, header)
+	if len(pixels) == 0 {
+		return fmt.Errorf("no pixel data in FITS")
+	}
+
+	mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
+	if err != nil {
+		return fmt.Errorf("failed to create Mat: %w", err)
+	}
+	defer mat.Close()
+
+	// Debayer
+	bayerPat := header.BayerPat
+	if bayerPat == "" {
+		bayerPat = "RGGB"
+	}
+	code, ok := cfaMap[bayerPat]
+	if !ok {
+		code = gocv.ColorBayerGBToBGR
+	}
+
+	rgb := gocv.NewMat()
+	defer rgb.Close()
+	gocv.CvtColor(mat, &rgb, code)
+
+	// Convert to grayscale
+	gray := gocv.NewMat()
+	defer gray.Close()
+	gocv.CvtColor(rgb, &gray, gocv.ColorBGRToGray)
+
+	// Convert to 8-bit with auto-stretch
+	out := gocv.NewMat()
+	defer out.Close()
+	gray.ConvertToWithParams(&out, gocv.MatTypeCV8UC1, 255.0/65535.0, 0)
+
+	// Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+	// This makes faint stars pop against the background — critical for plate solving
+	clahe := gocv.NewCLAHEWithParams(4.0, image.Pt(8, 8))
+	defer clahe.Close()
+	enhanced := gocv.NewMat()
+	defer enhanced.Close()
+	clahe.Apply(out, &enhanced)
+
+	// Save
+	if ok := gocv.IMWrite(outputPath, enhanced); !ok {
+		return fmt.Errorf("failed to write %s", outputPath)
+	}
+	return nil
+}
+
 // applyAutoWB applies gray world white balance on a 16-bit 3-channel Mat
 func applyAutoWB(img *gocv.Mat) {
 	channels := gocv.Split(*img)

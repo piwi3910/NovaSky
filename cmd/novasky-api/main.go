@@ -48,6 +48,9 @@ func main() {
 	cfg := config.NewManager()
 	cfg.Subscribe(ctx)
 
+	// Register debayer function for plate solving
+	platesolve.DebayerFunc = processing.DebayerToGray
+
 	app := fiber.New(fiber.Config{
 		BodyLimit: 50 * 1024 * 1024, // 50MB for JPEG frames
 	})

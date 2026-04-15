@@ -140,6 +140,10 @@ func CalcPixelScale(wcs *WCS) float64 {
 // LogFunc is the signature for the log callback
 type LogFunc func(msg string)
 
+// DebayerFunc is set by the caller to provide debayering capability (avoids circular import).
+// Signature: func(fitsPath, outputPath string) error
+var DebayerFunc func(string, string) error
+
 // Calibrate runs plate solving and returns the camera orientation calibration.
 // Uses W08 wide-field database for all-sky fisheye images (FoV > 20°).
 // Falls back to cropping center + D05 if W08 is not available.
@@ -165,23 +169,24 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 	}
 	logFn("Using W08 wide-field database")
 
-	// Raw Bayer FITS confuses ASTAP's star detection (checkerboard pattern).
-	// Convert to grayscale FITS first using ImageMagick — debayers and extracts luminance.
+	// Raw Bayer FITS confuses ASTAP — debayer using GoCV and apply CLAHE
+	// for maximum star visibility. Save as JPEG which ASTAP also accepts.
 	solvePath := imagePath
 	solveFov := fullFov
 
 	if strings.HasSuffix(imagePath, ".fits") {
-		grayPath := strings.TrimSuffix(imagePath, ".fits") + "_gray.fits"
-		logFn("Debayering raw FITS to grayscale for ASTAP...")
-		// -colorspace Gray converts Bayer mosaic to luminance
-		// -depth 16 preserves 16-bit dynamic range
-		cmd := exec.Command("convert", imagePath, "-colorspace", "Gray", "-depth", "16", grayPath)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			logFn(fmt.Sprintf("Warning: grayscale conversion failed, trying raw: %s", string(output)))
+		debayeredPath := strings.TrimSuffix(imagePath, ".fits") + "_solve.jpg"
+		logFn("Debayering raw FITS with GoCV + CLAHE contrast enhancement...")
+
+		// Import processing package dynamically via the exported function
+		if DebayerFunc == nil {
+			logFn("WARNING: No debayer function registered — trying raw FITS")
+		} else if err := DebayerFunc(imagePath, debayeredPath); err != nil {
+			logFn(fmt.Sprintf("Warning: debayer failed, trying raw FITS: %v", err))
 		} else {
-			defer os.Remove(grayPath)
-			solvePath = grayPath
-			logFn("Converted to grayscale FITS")
+			defer os.Remove(debayeredPath)
+			solvePath = debayeredPath
+			logFn("Debayered and enhanced successfully")
 		}
 	}
 
