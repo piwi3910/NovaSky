@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Grid, Card, Text, Title, Stack, Group, Badge, Modal } from "@mantine/core";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Grid, Card, Text, Title, Stack, Group, Badge, Switch } from "@mantine/core";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -19,8 +19,82 @@ export function Dashboard() {
   const { autoExposure } = useWebSocket();
 
   const [fullscreen, setFullscreen] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const frameId = status?.frame?.id;
   const hasJpeg = status?.frame?.jpegPath;
+  const { data: overlayData } = useApi<any>(frameId ? `/api/frames/${frameId}/overlay` : "", 10000);
+
+  const drawOverlay = useCallback(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || !img.complete || !img.naturalWidth) return;
+
+    const scale = img.clientWidth / img.naturalWidth;
+    canvas.width = img.clientWidth;
+    canvas.height = img.clientHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!showOverlay || !overlayData?.overlays) return;
+
+    for (const det of overlayData.overlays) {
+      const data = Array.isArray(det.data) ? det.data : (typeof det.data === "string" ? JSON.parse(det.data) : []);
+
+      if (det.type === "stars") {
+        ctx.strokeStyle = "rgba(0, 255, 100, 0.6)";
+        ctx.lineWidth = 1;
+        for (const s of data) {
+          const x = s.x * scale;
+          const y = s.y * scale;
+          const r = Math.max(3, (s.hfr || 3) * scale);
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      }
+
+      if (det.type === "constellations") {
+        ctx.strokeStyle = "rgba(100, 150, 255, 0.5)";
+        ctx.lineWidth = 1;
+        ctx.font = `${Math.max(10, 12 * scale)}px sans-serif`;
+        ctx.fillStyle = "rgba(100, 150, 255, 0.8)";
+        for (const c of data) {
+          if (c.name) {
+            const firstLine = c.lines?.[0];
+            if (firstLine) {
+              ctx.fillText(c.name, firstLine.x1 * scale, firstLine.y1 * scale - 5);
+            }
+          }
+          for (const line of (c.lines || [])) {
+            ctx.beginPath();
+            ctx.moveTo(line.x1 * scale, line.y1 * scale);
+            ctx.lineTo(line.x2 * scale, line.y2 * scale);
+            ctx.stroke();
+          }
+        }
+      }
+
+      if (det.type === "planets") {
+        ctx.font = `bold ${Math.max(11, 13 * scale)}px sans-serif`;
+        ctx.fillStyle = "rgba(255, 200, 50, 0.9)";
+        for (const p of data) {
+          if (p.pixelX && p.pixelY) {
+            const x = p.pixelX * scale;
+            const y = p.pixelY * scale;
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.fillText(p.name, x + 8, y + 4);
+          }
+        }
+      }
+    }
+  }, [overlayData, showOverlay]);
+
+  useEffect(() => { drawOverlay(); }, [drawOverlay]);
 
   return (
     <Stack gap="md">
@@ -39,9 +113,17 @@ export function Dashboard() {
           )}
         </Group>
         {frameId && hasJpeg ? (
-          <img src={`/api/frames/${frameId}/jpeg`} alt="Latest sky frame"
-            onClick={() => setFullscreen(true)}
-            style={{ width: "100%", maxHeight: 500, objectFit: "contain", borderRadius: 8, background: "#000", cursor: "pointer" }} />
+          <>
+            <Group justify="flex-end" mb="xs">
+              <Switch label="Show detections" size="xs" checked={showOverlay} onChange={e => setShowOverlay(e.currentTarget.checked)} />
+            </Group>
+            <div style={{ position: "relative", cursor: "pointer" }} onClick={() => setFullscreen(true)}>
+              <img ref={imgRef} src={`/api/frames/${frameId}/jpeg`} alt="Latest sky frame"
+                onLoad={drawOverlay}
+                style={{ width: "100%", maxHeight: 500, objectFit: "contain", borderRadius: 8, background: "#000", display: "block" }} />
+              <canvas ref={canvasRef} style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }} />
+            </div>
+          </>
         ) : (
           <Text c="dimmed" ta="center" py="xl">Waiting for processed frame...</Text>
         )}
