@@ -7,8 +7,10 @@ import (
 	"log"
 	"math"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -323,6 +325,59 @@ func main() {
 
 	app.Get("/api/focus/status", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"focusMode": focusMode})
+	})
+
+	// Weather forecast from Open-Meteo
+	app.Get("/api/weather", func(c *fiber.Ctx) error {
+		var loc struct {
+			Latitude  float64 `json:"latitude"`
+			Longitude float64 `json:"longitude"`
+		}
+		cfg.Get("location", &loc)
+		if loc.Latitude == 0 && loc.Longitude == 0 {
+			return c.JSON(fiber.Map{"error": "location not configured"})
+		}
+
+		url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&hourly=cloud_cover,temperature_2m,relative_humidity_2m,wind_speed_10m&forecast_days=1&timezone=auto", loc.Latitude, loc.Longitude)
+
+		resp, err := http.Get(url)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		defer resp.Body.Close()
+
+		var weather interface{}
+		json.NewDecoder(resp.Body).Decode(&weather)
+		return c.JSON(weather)
+	})
+
+	// Timelapse list
+	app.Get("/api/timelapse", func(c *fiber.Ctx) error {
+		dir := "/home/piwi/novasky-data/timelapse"
+		entries, _ := filepath.Glob(filepath.Join(dir, "*.mp4"))
+		type TL struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+		}
+		var timelapses []TL
+		for _, e := range entries {
+			fi, _ := os.Stat(e)
+			if fi != nil {
+				timelapses = append(timelapses, TL{
+					Name: filepath.Base(e),
+					Path: e,
+					Size: fi.Size(),
+				})
+			}
+		}
+		return c.JSON(fiber.Map{"timelapses": timelapses})
+	})
+
+	// Serve timelapse video
+	app.Get("/api/timelapse/:name", func(c *fiber.Ctx) error {
+		path := filepath.Join("/home/piwi/novasky-data/timelapse", c.Params("name"))
+		return c.SendFile(path)
 	})
 
 	// WebSocket

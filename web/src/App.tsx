@@ -7,6 +7,8 @@ import { SettingsCamera } from "./pages/SettingsCamera";
 import { SettingsImaging } from "./pages/SettingsImaging";
 import { SettingsDetection } from "./pages/SettingsDetection";
 import { SettingsAlerts } from "./pages/SettingsAlerts";
+import { Timelapse } from "./pages/Timelapse";
+import { FocusMode } from "./pages/FocusMode";
 import { useWebSocket } from "./hooks/useWebSocket";
 
 export function App() {
@@ -26,6 +28,8 @@ export function App() {
           <NavLink component={Link} to="/" label="Dashboard" />
           <NavLink component={Link} to="/frames" label="Frames" />
           <NavLink component={Link} to="/history" label="History" />
+          <NavLink component={Link} to="/timelapse" label="Timelapse" />
+          <NavLink component={Link} to="/focus" label="Focus Mode" />
           <NavLink label="Settings" defaultOpened>
             <NavLink component={Link} to="/settings/camera" label="Camera" />
             <NavLink component={Link} to="/settings/imaging" label="Imaging" />
@@ -38,6 +42,8 @@ export function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/frames" element={<Frames />} />
             <Route path="/history" element={<History />} />
+            <Route path="/timelapse" element={<Timelapse />} />
+            <Route path="/focus" element={<FocusMode />} />
             <Route path="/settings/camera" element={<SettingsCamera />} />
             <Route path="/settings/imaging" element={<SettingsImaging />} />
             <Route path="/settings/detection" element={<SettingsDetection />} />
