@@ -26,6 +26,8 @@ func main() {
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
+	novaskyRedis.StartHealthReporter(ctx, "export")
+
 	novaskyRedis.CreateConsumerGroup(ctx, novaskyRedis.StreamFramesExport, consumerGroup)
 
 	exportBase := os.Getenv("EXPORT_DIR")

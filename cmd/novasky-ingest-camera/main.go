@@ -44,6 +44,8 @@ func main() {
 		cancel()
 	}()
 
+	novaskyRedis.StartHealthReporter(ctx, "ingest-camera")
+
 	// Load config
 	cfg := config.NewManager()
 	cfg.Subscribe(ctx)

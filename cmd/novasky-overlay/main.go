@@ -22,6 +22,8 @@ func main() {
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
+	novaskyRedis.StartHealthReporter(ctx, "overlay")
+
 	novaskyRedis.CreateConsumerGroup(ctx, novaskyRedis.StreamFramesOverlay, consumerGroup)
 	log.Println("[overlay] Worker started (stub — pass-through)")
 

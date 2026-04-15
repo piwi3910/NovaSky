@@ -38,6 +38,8 @@ func main() {
 		cancel()
 	}()
 
+	novaskyRedis.StartHealthReporter(ctx, "processing")
+
 	// Load config for mask
 	cfg := config.NewManager()
 	cfg.Subscribe(ctx)

@@ -28,6 +28,8 @@ func main() {
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
+	novaskyRedis.StartHealthReporter(ctx, "detection")
+
 	novaskyRedis.CreateConsumerGroup(ctx, novaskyRedis.StreamFramesDetection, consumerGroup)
 	log.Println("[detection] Worker started")
 

@@ -24,6 +24,8 @@ func main() {
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
+	novaskyRedis.StartHealthReporter(ctx, "ingest-sensors")
+
 	apiURL := os.Getenv("API_URL")
 	if apiURL == "" {
 		apiURL = "http://localhost:3000"

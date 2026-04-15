@@ -22,6 +22,8 @@ func main() {
 	defer cancel()
 	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
+	novaskyRedis.StartHealthReporter(ctx, "timelapse")
+
 	novaskyRedis.CreateConsumerGroup(ctx, novaskyRedis.StreamFramesTimelapse, consumerGroup)
 	log.Println("[timelapse] Worker started (stub — collecting frames)")
 

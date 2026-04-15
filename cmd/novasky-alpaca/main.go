@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/piwi3910/NovaSky/internal/db"
@@ -34,12 +33,9 @@ func main() {
 	db.Init()
 	novaskyRedis.Init()
 
-	go func() {
-		for {
-			novaskyRedis.ReportHealth(context.Background(), "alpaca")
-			time.Sleep(30 * time.Second)
-		}
-	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	novaskyRedis.StartHealthReporter(ctx, "alpaca")
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})
 
