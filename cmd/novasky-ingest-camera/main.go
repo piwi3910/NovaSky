@@ -305,8 +305,8 @@ func main() {
 			})
 			novaskyRedis.Publish(ctx, novaskyRedis.ChannelFrameNew, string(frameEvent))
 
-			// Check backpressure (queue depth)
-			queueLen, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesProcessing)
+			// Check backpressure (pending messages, not total stream length)
+			queueLen, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesProcessing, "processing")
 			if queueLen > 3 {
 				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "paused")
 			} else if queueLen > 1 {
