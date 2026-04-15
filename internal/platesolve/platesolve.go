@@ -50,6 +50,10 @@ func Solve(fitsPath string, searchRadius float64, fov float64) (*WCS, error) {
 		"-r", fmt.Sprintf("%.1f", searchRadius),
 		"-d", "/opt/astap",
 		"-z", "0",
+		"-s", "100",      // fewer stars needed to match
+		"-t", "0.01",     // slightly higher tolerance for distorted images
+		"-speed", "slow", // read larger area from star database
+		"-progress",      // log progress
 	}
 	if fov > 0 {
 		args = append(args, "-fov", fmt.Sprintf("%.1f", fov))
@@ -150,6 +154,17 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc)
 		solvePath = croppedPath
 	} else if hasW08 {
 		logFn("Using W08 wide-field star database")
+	}
+
+	// Auto-stretch the image to improve star visibility for ASTAP
+	stretchedPath := strings.TrimSuffix(solvePath, ".jpg") + "_stretched.jpg"
+	stretchCmd := exec.Command("convert", solvePath, "-normalize", "-contrast-stretch", "0.1%x0.1%", stretchedPath)
+	if out, err := stretchCmd.CombinedOutput(); err != nil {
+		logFn(fmt.Sprintf("Warning: auto-stretch failed (continuing with original): %s", string(out)))
+	} else {
+		logFn("Auto-stretched image for better star detection")
+		defer os.Remove(stretchedPath)
+		solvePath = stretchedPath
 	}
 
 	logFn(fmt.Sprintf("Solving %s (%.1f° FoV)...", solvePath, solveFov))
