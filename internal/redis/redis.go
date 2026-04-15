@@ -81,6 +81,21 @@ func ReportHealth(ctx context.Context, service string) {
 	Client.Set(ctx, "novasky:health:"+service, "running", 60*time.Second)
 }
 
+// StartHealthReporter starts a background goroutine that reports health every 10 seconds
+func StartHealthReporter(ctx context.Context, service string) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				ReportHealth(ctx, service)
+				time.Sleep(10 * time.Second)
+			}
+		}
+	}()
+}
+
 // GetHealth checks if a service is alive
 func GetServiceHealth(ctx context.Context, service string) string {
 	val, err := Client.Get(ctx, "novasky:health:"+service).Result()

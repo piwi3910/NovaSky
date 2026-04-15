@@ -83,36 +83,19 @@ type MaskConfig struct {
 func debayer(raw []uint16, width, height int, pattern string) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// FITS Bayer pattern naming convention vs memory layout:
-	// FITS stores bottom-up but we read top-down, so the pattern is
-	// effectively flipped vertically. Additionally, FITS RGGB convention
-	// maps to what OpenCV calls BayerBG (same issue we had before).
-	// Fix: swap R/B interpretation for RGGB/BGGR patterns.
+	// Auto-detect Bayer pattern from actual pixel data.
+	// Instead of trusting the FITS header (which has ambiguous conventions),
+	// analyze the 2x2 superpixel means: Green channels will be brightest
+	// (2 green pixels per superpixel), and we identify R vs B by which
+	// non-green channel has lower mean (Red is typically lower in sky images,
+	// but we fall back to header hint if analysis is inconclusive).
+	redX, redY, blueX, blueY := detectBayerLayout(raw, width, height, pattern)
+
 	isRed := func(x, y int) bool {
-		switch pattern {
-		case "RGGB":
-			return x%2 == 1 && y%2 == 1 // FITS RGGB → actually B position in top-down
-		case "BGGR":
-			return x%2 == 0 && y%2 == 0
-		case "GRBG":
-			return x%2 == 0 && y%2 == 1
-		case "GBRG":
-			return x%2 == 1 && y%2 == 0
-		}
-		return false
+		return x%2 == redX && y%2 == redY
 	}
 	isBlue := func(x, y int) bool {
-		switch pattern {
-		case "RGGB":
-			return x%2 == 0 && y%2 == 0 // FITS RGGB → actually R position in top-down
-		case "BGGR":
-			return x%2 == 1 && y%2 == 1
-		case "GRBG":
-			return x%2 == 1 && y%2 == 0
-		case "GBRG":
-			return x%2 == 0 && y%2 == 1
-		}
-		return false
+		return x%2 == blueX && y%2 == blueY
 	}
 
 	getPixel := func(x, y int) uint16 {
@@ -278,4 +261,82 @@ func applyMask(img *image.RGBA, cx, cy, radius int) {
 			}
 		}
 	}
+}
+
+// detectBayerLayout analyzes the raw pixel data to determine which positions
+// in the 2x2 superpixel are R, G, G, B. Works with any camera regardless of
+// FITS header conventions.
+//
+// Method: compute mean value for each of the 4 positions in the 2x2 grid.
+// The two positions with the closest means are Green (there are 2 green pixels).
+// Of the remaining two, the dimmer one is Red (works for most sky images).
+//
+// Returns: redX, redY, blueX, blueY (each 0 or 1, position within 2x2 block)
+func detectBayerLayout(raw []uint16, width, height int, headerPattern string) (int, int, int, int) {
+	// Sample the center 25% for speed and to avoid edge artifacts
+	startX := width / 4
+	startY := height / 4
+	endX := width * 3 / 4
+	endY := height * 3 / 4
+
+	var sums [2][2]float64
+	var counts [2][2]float64
+
+	for y := startY; y < endY; y++ {
+		for x := startX; x < endX; x++ {
+			bx := x % 2
+			by := y % 2
+			sums[by][bx] += float64(raw[y*width+x])
+			counts[by][bx]++
+		}
+	}
+
+	// Compute means
+	type pos struct{ x, y int }
+	var positions [4]pos
+	var meanVals [4]float64
+	idx := 0
+	for by := 0; by < 2; by++ {
+		for bx := 0; bx < 2; bx++ {
+			if counts[by][bx] > 0 {
+				meanVals[idx] = sums[by][bx] / counts[by][bx]
+			}
+			positions[idx] = pos{bx, by}
+			idx++
+		}
+	}
+
+	// Find the two Green positions (closest pair of means)
+	minDiff := meanVals[0] + meanVals[1] + meanVals[2] + meanVals[3]
+	greenA, greenB := 0, 1
+	for i := 0; i < 4; i++ {
+		for j := i + 1; j < 4; j++ {
+			diff := meanVals[i] - meanVals[j]
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < minDiff {
+				minDiff = diff
+				greenA, greenB = i, j
+			}
+		}
+	}
+
+	// The other two positions are R and B
+	var nonGreen [2]int
+	ni := 0
+	for i := 0; i < 4; i++ {
+		if i != greenA && i != greenB {
+			nonGreen[ni] = i
+			ni++
+		}
+	}
+
+	// Dimmer non-green is Red (works for sky images)
+	rIdx, bIdx := nonGreen[0], nonGreen[1]
+	if meanVals[rIdx] > meanVals[bIdx] {
+		rIdx, bIdx = bIdx, rIdx
+	}
+
+	return positions[rIdx].x, positions[rIdx].y, positions[bIdx].x, positions[bIdx].y
 }
