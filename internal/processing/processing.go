@@ -39,8 +39,8 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 
 	pixelData := data[headerSize:]
 
-	// Read raw pixel values as uint16
-	pixels := readPixels16(pixelData, width, height, bitpix)
+	// Read raw pixel values as uint16 (applying BZERO for proper unsigned interpretation)
+	pixels := readPixels16(pixelData, width, height, bitpix, header.bzero)
 
 	// Debayer
 	var img *image.RGBA
@@ -87,6 +87,7 @@ type fitsHeader struct {
 	naxis2     int
 	bitpix     int
 	bayerpat   string
+	bzero      float64
 	dataOffset int
 }
 
@@ -115,23 +116,33 @@ func parseFITSHeader(data []byte) fitsHeader {
 				fmt.Sscanf(valStr, "%d", &h.bitpix)
 			case "BAYERPAT":
 				h.bayerpat = valStr
+			case "BZERO":
+				fmt.Sscanf(valStr, "%f", &h.bzero)
 			}
 		}
 	}
 	return h
 }
 
-func readPixels16(data []byte, width, height, bitpix int) []uint16 {
+func readPixels16(data []byte, width, height, bitpix int, bzero float64) []uint16 {
 	nPixels := width * height
 	pixels := make([]uint16, nPixels)
 	bytesPerPixel := abs(bitpix) / 8
 
 	for i := 0; i < nPixels && i*bytesPerPixel+1 < len(data); i++ {
 		if bytesPerPixel == 2 {
-			// FITS is big-endian
-			pixels[i] = binary.BigEndian.Uint16(data[i*2 : i*2+2])
+			// FITS is big-endian. Apply BZERO for proper unsigned interpretation.
+			raw := int16(binary.BigEndian.Uint16(data[i*2 : i*2+2]))
+			val := float64(raw) + bzero
+			if val < 0 {
+				val = 0
+			}
+			if val > 65535 {
+				val = 65535
+			}
+			pixels[i] = uint16(val)
 		} else if bytesPerPixel == 1 {
-			pixels[i] = uint16(data[i]) * 256 // scale 8-bit to 16-bit
+			pixels[i] = uint16(data[i]) * 256
 		}
 	}
 	return pixels
@@ -211,7 +222,9 @@ func debayer(raw []uint16, width, height int, pattern string) *image.RGBA {
 				}
 			}
 
-			// Scale 16-bit to 8-bit (will be adjusted by stretch)
+			// Store as 16-bit color (using RGBA64 would be ideal but we convert at the end)
+			// For "none" stretch: map based on actual data range
+			// For now, simple >> 8 — stretch function handles the rest
 			img.SetRGBA(x, y, color.RGBA{
 				R: uint8(r >> 8),
 				G: uint8(g >> 8),
