@@ -1,4 +1,5 @@
 import { Grid, Card, Text, Title, Stack, Group, Badge } from "@mantine/core";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { PipelineView } from "../components/PipelineView";
@@ -11,6 +12,7 @@ interface StatusResponse {
 
 export function Dashboard() {
   const { data: status } = useApi<StatusResponse>("/api/status", 5000);
+  const { data: cloudData } = useApi<Array<{time: string; value: number}>>("/api/charts/cloud-cover?hours=6", 30000);
   const { autoExposure } = useWebSocket();
 
   const frameId = status?.frame?.id;
@@ -41,6 +43,22 @@ export function Dashboard() {
       </Card>
 
       <PipelineView />
+
+      <Card shadow="sm" padding="lg" withBorder>
+        <Text size="sm" c="dimmed" mb="sm">Cloud Cover (last 6 hours)</Text>
+        {cloudData && cloudData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={cloudData}>
+              <XAxis dataKey="time" tick={{ fontSize: 10 }} tickFormatter={t => new Date(t).toLocaleTimeString()} interval="preserveStartEnd" />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+              <Tooltip formatter={(v: number) => `${v.toFixed(0)}%`} labelFormatter={t => new Date(t).toLocaleString()} />
+              <Line type="monotone" dataKey="value" stroke="#228be6" dot={false} strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <Text size="sm" c="dimmed">No data yet</Text>
+        )}
+      </Card>
 
       <Grid>
         <Grid.Col span={{ base: 12, md: 4 }}>

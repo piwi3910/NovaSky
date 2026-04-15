@@ -5,6 +5,8 @@ import { Frames } from "./pages/Frames";
 import { History } from "./pages/History";
 import { SettingsCamera } from "./pages/SettingsCamera";
 import { SettingsImaging } from "./pages/SettingsImaging";
+import { SettingsDetection } from "./pages/SettingsDetection";
+import { SettingsAlerts } from "./pages/SettingsAlerts";
 import { useWebSocket } from "./hooks/useWebSocket";
 
 export function App() {
@@ -27,6 +29,8 @@ export function App() {
           <NavLink label="Settings" defaultOpened>
             <NavLink component={Link} to="/settings/camera" label="Camera" />
             <NavLink component={Link} to="/settings/imaging" label="Imaging" />
+            <NavLink component={Link} to="/settings/detection" label="Detection" />
+            <NavLink component={Link} to="/settings/alerts" label="Alerts" />
           </NavLink>
         </AppShell.Navbar>
         <AppShell.Main>
@@ -36,6 +40,8 @@ export function App() {
             <Route path="/history" element={<History />} />
             <Route path="/settings/camera" element={<SettingsCamera />} />
             <Route path="/settings/imaging" element={<SettingsImaging />} />
+            <Route path="/settings/detection" element={<SettingsDetection />} />
+            <Route path="/settings/alerts" element={<SettingsAlerts />} />
           </Routes>
         </AppShell.Main>
       </AppShell>
