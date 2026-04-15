@@ -154,17 +154,6 @@ func main() {
 		}
 	})
 
-	// Backpressure monitoring — reset to normal on startup so stale "paused" state doesn't block capture
-	backpressure := "normal"
-	novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "normal")
-	go func() {
-		sub := novaskyRedis.Client.Subscribe(ctx, novaskyRedis.ChannelBackpressure)
-		ch := sub.Channel()
-		for msg := range ch {
-			backpressure = msg.Payload
-		}
-	}()
-
 	// Focus mode subscription
 	focusMode := false
 	go func() {
@@ -192,17 +181,7 @@ func main() {
 		default:
 		}
 
-		// Check backpressure
-		if backpressure == "paused" {
-			log.Println("[ingest-camera] Paused (backpressure)")
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
 		interval := defaultInterval
-		if backpressure == "throttled" {
-			interval *= 2
-		}
 
 		// Focus mode override — rapid capture with fixed short exposure
 		if focusMode {
@@ -305,16 +284,6 @@ func main() {
 				"gain": gain, "medianAdu": medianADU,
 			})
 			novaskyRedis.Publish(ctx, novaskyRedis.ChannelFrameNew, string(frameEvent))
-
-			// Check backpressure (pending messages, not total stream length)
-			queueLen, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesProcessing, "processing")
-			if queueLen > 3 {
-				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "paused")
-			} else if queueLen > 1 {
-				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "throttled")
-			} else {
-				novaskyRedis.Publish(ctx, novaskyRedis.ChannelBackpressure, "normal")
-			}
 
 			log.Printf("[ingest-camera] Frame captured: %s exp=%.3fms gain=%d adu=%.0f",
 				frame.ID, exposureMs, gain, medianADU)
