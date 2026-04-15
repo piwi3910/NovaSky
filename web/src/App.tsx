@@ -13,6 +13,11 @@ import { SettingsYouTube } from "./pages/SettingsYouTube";
 import { SettingsStorage } from "./pages/SettingsStorage";
 import { Timelapse } from "./pages/Timelapse";
 import { FocusMode } from "./pages/FocusMode";
+import { ProcessingTuner } from "./pages/ProcessingTuner";
+import { FrameMasking } from "./pages/FrameMasking";
+import { SettingsPublicPage } from "./pages/SettingsPublicPage";
+import { SettingsDisk } from "./pages/SettingsDisk";
+import { SettingsGPIO } from "./pages/SettingsGPIO";
 import { useWebSocket } from "./hooks/useWebSocket";
 
 export function App() {
@@ -34,6 +39,8 @@ export function App() {
           <NavLink component={Link} to="/history" label="History" />
           <NavLink component={Link} to="/timelapse" label="Timelapse" />
           <NavLink component={Link} to="/focus" label="Focus Mode" />
+          <NavLink component={Link} to="/processing" label="Processing Tuner" />
+          <NavLink component={Link} to="/masking" label="Frame Masking" />
           <NavLink label="Settings" defaultOpened>
             <NavLink component={Link} to="/settings/camera" label="Camera" />
             <NavLink component={Link} to="/settings/imaging" label="Imaging" />
@@ -43,6 +50,9 @@ export function App() {
             <NavLink component={Link} to="/settings/mqtt" label="MQTT" />
             <NavLink component={Link} to="/settings/youtube" label="YouTube" />
             <NavLink component={Link} to="/settings/storage" label="Storage" />
+            <NavLink component={Link} to="/settings/gpio" label="GPIO / Sensors" />
+            <NavLink component={Link} to="/settings/disk" label="Disk Management" />
+            <NavLink component={Link} to="/settings/public" label="Public Page" />
           </NavLink>
         </AppShell.Navbar>
         <AppShell.Main>
@@ -60,6 +70,11 @@ export function App() {
             <Route path="/settings/mqtt" element={<SettingsMQTT />} />
             <Route path="/settings/youtube" element={<SettingsYouTube />} />
             <Route path="/settings/storage" element={<SettingsStorage />} />
+            <Route path="/processing" element={<ProcessingTuner />} />
+            <Route path="/masking" element={<FrameMasking />} />
+            <Route path="/settings/gpio" element={<SettingsGPIO />} />
+            <Route path="/settings/disk" element={<SettingsDisk />} />
+            <Route path="/settings/public" element={<SettingsPublicPage />} />
           </Routes>
         </AppShell.Main>
       </AppShell>
