@@ -14,6 +14,7 @@ import (
 	"github.com/piwi3910/NovaSky/internal/autoexposure"
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
+	"github.com/piwi3910/NovaSky/internal/diskmanager"
 	"github.com/piwi3910/NovaSky/internal/fits"
 	"github.com/piwi3910/NovaSky/internal/indi"
 	"github.com/piwi3910/NovaSky/internal/models"
@@ -165,6 +166,8 @@ func main() {
 
 	log.Printf("[ingest-camera] Starting capture loop: device=%s spool=%s", deviceName, spoolDir)
 
+	frameCount := 0
+
 	// Main capture loop
 	for {
 		select {
@@ -277,6 +280,12 @@ func main() {
 			log.Printf("[ingest-camera] Convergence frame: exp=%.3fms gain=%d adu=%.0f (not sent to pipeline)",
 				exposureMs, gain, medianADU)
 		}
+
+		// Periodic disk check (every 10 frames)
+		if frameCount%10 == 0 {
+			diskmanager.CheckAndClean(spoolDir, 5.0) // keep 5GB free minimum
+		}
+		frameCount++
 
 		// Rapid capture when ADU is way off — skip the normal interval
 		if ae.NeedsRapidCapture() {

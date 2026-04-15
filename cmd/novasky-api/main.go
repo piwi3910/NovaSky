@@ -19,6 +19,7 @@ import (
 
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
+	"github.com/piwi3910/NovaSky/internal/diskmanager"
 	"github.com/piwi3910/NovaSky/internal/models"
 	"github.com/piwi3910/NovaSky/internal/platesolve"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
@@ -186,6 +187,21 @@ func main() {
 	app.Post("/api/capture", func(c *fiber.Ctx) error {
 		// Publish a capture request — ingest-camera will pick it up
 		return c.JSON(fiber.Map{"status": "capture requested"})
+	})
+
+	// Disk usage
+	app.Get("/api/disk", func(c *fiber.Ctx) error {
+		spoolDir := os.Getenv("FRAME_SPOOL_DIR")
+		if spoolDir == "" {
+			spoolDir = "/home/piwi/novasky-data/frames"
+		}
+		total, used, free := diskmanager.GetUsage(spoolDir)
+		return c.JSON(fiber.Map{
+			"totalGB": math.Round(total*10) / 10,
+			"usedGB":  math.Round(used*10) / 10,
+			"freeGB":  math.Round(free*10) / 10,
+			"path":    spoolDir,
+		})
 	})
 
 	// Prometheus metrics
