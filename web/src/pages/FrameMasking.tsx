@@ -97,8 +97,8 @@ export function FrameMasking() {
       const container = containerRef.current;
       if (!canvas || !container) return;
 
-      // Fit canvas to container width, max 600px
-      const maxW = Math.min(container.clientWidth, 600);
+      // Fit canvas to container width
+      const maxW = container.clientWidth;
       const scale = maxW / img.naturalWidth;
       scaleRef.current = scale;
       canvas.width = Math.round(img.naturalWidth * scale);
@@ -181,7 +181,7 @@ export function FrameMasking() {
       </Card>
       <Card shadow="sm" padding="lg" withBorder>
         <Text fw={500} mb="sm">Preview</Text>
-        <div ref={containerRef} style={{ maxWidth: 600, margin: "0 auto" }}>
+        <div ref={containerRef} style={{ margin: "0 auto" }}>
           <canvas
             ref={canvasRef}
             style={{ display: "block", cursor: dragging.current ? "grabbing" : "crosshair", borderRadius: 8, background: "#000" }}
