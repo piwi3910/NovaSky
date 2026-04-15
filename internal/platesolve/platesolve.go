@@ -3,6 +3,7 @@ package platesolve
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"strconv"
@@ -23,32 +24,103 @@ type WCS struct {
 	Solved bool
 }
 
+// Calibration holds the camera orientation result from plate solving
+type Calibration struct {
+	NorthAngle float64 `json:"northAngle"` // degrees clockwise from image-up to North
+	RA         float64 `json:"ra"`         // RA of image center (degrees)
+	Dec        float64 `json:"dec"`        // Dec of image center (degrees)
+	PixelScale float64 `json:"pixelScale"` // arcsec/pixel
+	Solved     bool    `json:"solved"`
+}
+
 var (
 	cachedWCS *WCS
 	wcsMu     sync.RWMutex
 )
 
 // Solve runs ASTAP plate solver on a FITS file and returns the WCS solution.
-func Solve(fitsPath string, searchRadius float64) (*WCS, error) {
+// fov is the field of view in degrees (0 = let ASTAP guess).
+func Solve(fitsPath string, searchRadius float64, fov float64) (*WCS, error) {
 	if searchRadius <= 0 {
-		searchRadius = 180 // full sky search for all-sky cameras
+		searchRadius = 180
 	}
 
-	cmd := exec.Command("astap_cli",
+	args := []string{
 		"-f", fitsPath,
 		"-r", fmt.Sprintf("%.1f", searchRadius),
-		"-d", "/opt/astap", // D05 star catalog location
-		"-z", "0", // downsample
-	)
+		"-d", "/opt/astap",
+		"-z", "0",
+	}
+	if fov > 0 {
+		args = append(args, "-fov", fmt.Sprintf("%.1f", fov))
+	}
 
+	cmd := exec.Command("astap_cli", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("astap_cli failed: %w\nOutput: %s", err, string(output))
 	}
 
-	// Parse the .wcs file that ASTAP creates alongside the FITS
 	wcsPath := strings.TrimSuffix(fitsPath, ".fits") + ".wcs"
 	return parseWCSFile(wcsPath)
+}
+
+// CalcFoV computes the field of view in degrees from focal length and sensor size.
+// pixelSizeUm is the pixel size in micrometers, imageWidth is pixels across.
+func CalcFoV(focalLengthMm float64, pixelSizeUm float64, imageWidth int) float64 {
+	if focalLengthMm <= 0 || pixelSizeUm <= 0 || imageWidth <= 0 {
+		return 0
+	}
+	// pixel scale in arcsec/pixel
+	pixelScale := 206.265 * pixelSizeUm / focalLengthMm
+	// FoV in degrees
+	return pixelScale * float64(imageWidth) / 3600.0
+}
+
+// CalcNorthAngle extracts the rotation angle from the CD matrix.
+// Returns degrees clockwise from image-up to celestial North.
+func CalcNorthAngle(wcs *WCS) float64 {
+	if !wcs.Solved {
+		return 0
+	}
+	// North angle from CD matrix: angle of the Dec axis relative to image Y
+	// atan2(CD2_1, CD2_2) gives the rotation of North from the Y-axis
+	angle := math.Atan2(wcs.CD2_1, wcs.CD2_2) * 180.0 / math.Pi
+	return angle
+}
+
+// CalcPixelScale returns the pixel scale in arcsec/pixel from the CD matrix.
+func CalcPixelScale(wcs *WCS) float64 {
+	if !wcs.Solved {
+		return 0
+	}
+	// pixel scale = sqrt(CD1_1^2 + CD2_1^2) * 3600
+	return math.Sqrt(wcs.CD1_1*wcs.CD1_1+wcs.CD2_1*wcs.CD2_1) * 3600.0
+}
+
+// Calibrate runs plate solving and returns the camera orientation calibration.
+func Calibrate(fitsPath string, fov float64) (*Calibration, error) {
+	log.Printf("[platesolve] Calibrating with FoV=%.1f° on %s", fov, fitsPath)
+	wcs, err := Solve(fitsPath, 180, fov)
+	if err != nil {
+		return nil, err
+	}
+	if !wcs.Solved {
+		return &Calibration{Solved: false}, nil
+	}
+
+	cal := &Calibration{
+		NorthAngle: CalcNorthAngle(wcs),
+		RA:         wcs.CRVAL1,
+		Dec:        wcs.CRVAL2,
+		PixelScale: CalcPixelScale(wcs),
+		Solved:     true,
+	}
+
+	CacheWCS(wcs)
+	log.Printf("[platesolve] Calibration: North=%.1f° RA=%.4f Dec=%.4f scale=%.2f\"/px",
+		cal.NorthAngle, cal.RA, cal.Dec, cal.PixelScale)
+	return cal, nil
 }
 
 // GetCachedWCS returns the most recent plate solve result

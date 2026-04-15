@@ -160,15 +160,47 @@ func main() {
 
 	// Plate solve status
 	app.Get("/api/platesolve", func(c *fiber.Ctx) error {
-		wcs := platesolve.GetCachedWCS()
-		if wcs == nil {
-			return c.JSON(fiber.Map{"solved": false})
+		// Return stored calibration from config
+		var cal platesolve.Calibration
+		cfg.Get("camera.calibration", &cal)
+		return c.JSON(cal)
+	})
+
+	// Manual plate solve calibration — triggered by user to determine camera rotation
+	app.Post("/api/platesolve/calibrate", func(c *fiber.Ctx) error {
+		// Get latest frame
+		var frame models.Frame
+		if err := db.GetDB().Order("created_at DESC").First(&frame).Error; err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "No frames available"})
 		}
-		return c.JSON(fiber.Map{
-			"solved": true,
-			"ra":     wcs.CRVAL1, "dec": wcs.CRVAL2,
-			"crpix1": wcs.CRPIX1, "crpix2": wcs.CRPIX2,
-		})
+
+		// Get optics config for FoV calculation
+		var optics struct {
+			FocalLength float64 `json:"focalLength"`
+		}
+		cfg.Get("camera.optics", &optics)
+		if optics.FocalLength <= 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Set focal length in Camera Settings first"})
+		}
+
+		// ZWO ASI676MC pixel size = 2.0µm, image width from frame
+		pixelSize := 2.0 // TODO: read from camera properties
+		fov := platesolve.CalcFoV(optics.FocalLength, pixelSize, 3552)
+
+		// Run plate solve in background
+		go func() {
+			cal, err := platesolve.Calibrate(frame.FilePath, fov)
+			if err != nil {
+				log.Printf("[api] Plate solve calibration failed: %v", err)
+				return
+			}
+			if cal.Solved {
+				cfg.Set("camera.calibration", cal)
+				log.Printf("[api] Camera calibration saved: North=%.1f°", cal.NorthAngle)
+			}
+		}()
+
+		return c.JSON(fiber.Map{"status": "calibrating", "fitsPath": frame.FilePath, "fov": fov})
 	})
 
 	// Devices — query INDI sidecar or return config fallback

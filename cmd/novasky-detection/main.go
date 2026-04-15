@@ -21,7 +21,6 @@ import (
 	"github.com/piwi3910/NovaSky/internal/fits"
 	"github.com/piwi3910/NovaSky/internal/models"
 	"github.com/piwi3910/NovaSky/internal/nightlysummary"
-	"github.com/piwi3910/NovaSky/internal/platesolve"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
@@ -217,22 +216,6 @@ func main() {
 					go detection.FetchTLEs() //nolint:errcheck
 				}
 
-				// Plate solve (once, or periodically)
-				if detCfg.PlateSolveEnabled && platesolve.GetCachedWCS() == nil {
-					go func(fp string) {
-						log.Printf("[detection] Attempting plate solve on %s", fp)
-						wcs, err := platesolve.Solve(fp, 180)
-						if err != nil {
-							log.Printf("[detection] Plate solve failed: %v", err)
-							return
-						}
-						if wcs.Solved {
-							platesolve.CacheWCS(wcs)
-							log.Printf("[detection] Plate solved! RA=%.4f Dec=%.4f", wcs.CRVAL1, wcs.CRVAL2)
-						}
-					}(filePath)
-				}
-
 				// Trigger policy evaluation
 				novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]interface{}{
 					"trigger": "detection", "sourceId": result.ID,
@@ -295,22 +278,30 @@ func analyzeFrame(fitsData []byte) (brightness, cloudCover float64) {
 	variance := sumSq/n - mean*mean
 	stddev := math.Sqrt(math.Max(0, variance))
 
-	// Cloud detection heuristic:
-	// At night: bright + low contrast = clouds. Dark + high contrast = clear.
-	// During day: always bright, use contrast ratio.
-	// Normalize: contrast below 0.02 suggests uniform (cloudy), above 0.05 suggests structure (clear)
-	contrastScore := math.Min(1.0, stddev/0.05) // 0=uniform, 1=high contrast
+	// Cloud detection using histogram spread.
+	// Auto-exposure normalizes brightness, so median is NOT a cloud indicator.
+	// Instead use the distribution shape:
+	// - Clear night sky: bimodal (dark sky + bright stars) → high IQR relative to median
+	// - Cloudy night sky: unimodal (uniform glow) → low IQR relative to median
+	// - Clear day: bright with texture → moderate stddev
+	// - Cloudy day: bright and flat → low stddev
+	p25 := float64(sampled[len(sampled)/4]) / 65535.0
+	p75 := float64(sampled[3*len(sampled)/4]) / 65535.0
+	iqr := p75 - p25
 
-	if brightness > 0.4 {
-		// Daytime or very bright — cloud cover from inverse contrast
-		cloudCover = math.Max(0, 1.0-contrastScore)
-	} else {
-		// Night — combine brightness and contrast
-		// Bright + uniform = clouds. Dark + varied = clear.
-		brightnessScore := math.Min(1.0, brightness/0.15) // 0=dark, 1=bright
-		cloudCover = brightnessScore * (1.0 - contrastScore*0.5)
+	// Relative spread: IQR / mean — independent of auto-exposure level
+	relativeSpread := 0.0
+	if mean > 0.001 {
+		relativeSpread = iqr / mean
 	}
-	cloudCover = math.Max(0, math.Min(1.0, cloudCover))
+
+	// Higher relative spread = more structure = clearer sky
+	// Typical values: clear night 0.3-1.0+, cloudy night 0.02-0.1, clear day 0.1-0.3, cloudy day 0.01-0.05
+	// Map: spread > 0.2 = clear, spread < 0.05 = fully cloudy
+	cloudCover = 1.0 - math.Min(1.0, math.Max(0, (relativeSpread-0.05)/0.20))
+
+	log.Printf("[detection] brightness=%.3f mean=%.3f stddev=%.4f iqr=%.4f relSpread=%.3f cloud=%.0f%%",
+		brightness, mean, stddev, iqr, relativeSpread, cloudCover*100)
 	return
 }
 
