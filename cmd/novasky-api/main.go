@@ -216,7 +216,15 @@ func main() {
 			}
 			calLog("Image file found, cropping center region to reduce FoV...")
 
-			cal, err := platesolve.Calibrate(imagePath, fov, 3552, calLog)
+			// Get location for zenith hint
+			var loc struct {
+				Latitude  float64 `json:"latitude"`
+				Longitude float64 `json:"longitude"`
+			}
+			cfg.Get("location", &loc)
+			calLog(fmt.Sprintf("Observer location: lat=%.4f lon=%.4f", loc.Latitude, loc.Longitude))
+
+			cal, err := platesolve.Calibrate(imagePath, fov, 3552, loc.Latitude, loc.Longitude, calLog)
 			if err != nil {
 				calLog(fmt.Sprintf("ERROR: Plate solve failed: %v", err))
 				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)

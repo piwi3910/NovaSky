@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // WCS holds the World Coordinate System solution
@@ -66,6 +67,40 @@ func Solve(fitsPath string, searchRadius float64, fov float64) (*WCS, error) {
 	}
 
 	wcsPath := strings.TrimSuffix(fitsPath, ".fits") + ".wcs"
+	if !strings.HasSuffix(fitsPath, ".fits") {
+		wcsPath = strings.TrimSuffix(fitsPath, ".jpg") + ".wcs"
+	}
+	return parseWCSFile(wcsPath)
+}
+
+// SolveWithHint runs ASTAP with a position hint (RA in hours, SPD in degrees) and smaller search radius.
+func SolveWithHint(fitsPath string, raHours, spd, searchRadius, fov float64) (*WCS, error) {
+	args := []string{
+		"-f", fitsPath,
+		"-r", fmt.Sprintf("%.1f", searchRadius),
+		"-ra", fmt.Sprintf("%.4f", raHours),
+		"-spd", fmt.Sprintf("%.1f", spd),
+		"-d", "/opt/astap",
+		"-z", "0",
+		"-s", "100",
+		"-t", "0.01",
+		"-speed", "slow",
+		"-progress",
+	}
+	if fov > 0 {
+		args = append(args, "-fov", fmt.Sprintf("%.1f", fov))
+	}
+
+	cmd := exec.Command("astap_cli", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("astap_cli failed: %w\nOutput: %s", err, string(output))
+	}
+
+	wcsPath := strings.TrimSuffix(fitsPath, ".fits") + ".wcs"
+	if !strings.HasSuffix(fitsPath, ".fits") {
+		wcsPath = strings.TrimSuffix(fitsPath, ".jpg") + ".wcs"
+	}
 	return parseWCSFile(wcsPath)
 }
 
@@ -108,7 +143,8 @@ type LogFunc func(msg string)
 // Calibrate runs plate solving and returns the camera orientation calibration.
 // Uses W08 wide-field database for all-sky fisheye images (FoV > 20°).
 // Falls back to cropping center + D05 if W08 is not available.
-func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc) (*Calibration, error) {
+// lat/lon are the observer's location for computing zenith position hint.
+func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float64, logFn LogFunc) (*Calibration, error) {
 	if logFn == nil {
 		logFn = func(msg string) { log.Println(msg) }
 	}
@@ -171,9 +207,25 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc)
 	solvePath := croppedPath
 
 	logFn(fmt.Sprintf("Cropped and enhanced: %s (%dx%d, %.1f° FoV)", solvePath, cropSize, cropSize, solveFov))
-	logFn("Running ASTAP plate solver...")
 
-	wcs, err := Solve(solvePath, 180, solveFov)
+	// Calculate zenith position from observer location for search hint
+	// Zenith RA = Local Sidereal Time, Zenith Dec = Latitude
+	now := time.Now().UTC()
+	jd := float64(now.Unix())/86400.0 + 2440587.5
+	gmst := math.Mod(280.46061837+360.98564736629*(jd-2451545.0), 360.0)
+	if gmst < 0 {
+		gmst += 360.0
+	}
+	zenithRA := math.Mod(gmst+lon, 360.0) / 15.0 // hours
+	zenithDec := lat                                // degrees
+	// ASTAP uses SPD (South Pole Distance) = Dec + 90
+	spd := zenithDec + 90.0
+
+	logFn(fmt.Sprintf("Zenith hint: RA=%.2fh Dec=%.1f° (from lat=%.4f lon=%.4f)", zenithRA, zenithDec, lat, lon))
+	logFn("Running ASTAP plate solver with position hint...")
+
+	// Use smaller search radius since we know where zenith is
+	wcs, err := SolveWithHint(solvePath, zenithRA, spd, 30, solveFov)
 	if err != nil {
 		return nil, err
 	}
