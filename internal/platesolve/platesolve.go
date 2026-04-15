@@ -98,10 +98,55 @@ func CalcPixelScale(wcs *WCS) float64 {
 	return math.Sqrt(wcs.CD1_1*wcs.CD1_1+wcs.CD2_1*wcs.CD2_1) * 3600.0
 }
 
+// CalibrateFunc is the signature for the log callback
+type LogFunc func(msg string)
+
 // Calibrate runs plate solving and returns the camera orientation calibration.
-func Calibrate(fitsPath string, fov float64) (*Calibration, error) {
-	log.Printf("[platesolve] Calibrating with FoV=%.1f° on %s", fov, fitsPath)
-	wcs, err := Solve(fitsPath, 180, fov)
+// It uses the JPEG (debayered) image and crops the center 20% to avoid fisheye
+// distortion and to fit within the D05 database FoV limit (<20°).
+// fullFov is the full-frame field of view in degrees.
+func Calibrate(imagePath string, fullFov float64, logFn LogFunc) (*Calibration, error) {
+	if logFn == nil {
+		logFn = func(msg string) { log.Println(msg) }
+	}
+
+	// Crop ratio: use center 20% of the image
+	// This reduces FoV proportionally: cropFov = fullFov * 0.20
+	cropRatio := 0.20
+	cropFov := fullFov * cropRatio
+
+	// If crop FoV is still too large for D05, reduce further
+	if cropFov > 18 {
+		cropRatio = 18.0 / fullFov
+		cropFov = 18.0
+	}
+
+	logFn(fmt.Sprintf("Full FoV: %.1f° → cropping center %.0f%% → crop FoV: %.1f°", fullFov, cropRatio*100, cropFov))
+
+	// Use ImageMagick/convert to crop center of the image
+	// This works on both FITS and JPEG
+	cropPercent := int(cropRatio * 100)
+	croppedPath := strings.TrimSuffix(imagePath, ".fits")
+	croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
+
+	// Use convert (ImageMagick) to crop center
+	cropGeom := fmt.Sprintf("%d%%x%d%%+0+0", cropPercent, cropPercent)
+	cmd := exec.Command("convert", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Try with 'magick' (ImageMagick v7)
+		cmd = exec.Command("magick", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("failed to crop image: %w\nOutput: %s", err, string(output))
+		}
+	}
+	defer os.Remove(croppedPath)
+
+	logFn(fmt.Sprintf("Cropped center to %s (%.1f° FoV)", croppedPath, cropFov))
+	logFn("Running ASTAP plate solver on cropped image...")
+
+	wcs, err := Solve(croppedPath, 180, cropFov)
 	if err != nil {
 		return nil, err
 	}

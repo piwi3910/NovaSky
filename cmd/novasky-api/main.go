@@ -195,22 +195,28 @@ func main() {
 		pixelSize := 2.0
 		fov := platesolve.CalcFoV(optics.FocalLength, pixelSize, 3552)
 
+		// Use JPEG (debayered) if available, otherwise FITS
+		imagePath := frame.FilePath
+		if frame.JpegPath != nil && *frame.JpegPath != "" {
+			imagePath = *frame.JpegPath
+		}
+
 		// Run plate solve in background with logging
 		go func() {
 			calLog(fmt.Sprintf("Starting calibration on frame %s", frame.ID))
 			calLog(fmt.Sprintf("Focal length: %.1fmm, Pixel size: %.1fµm", optics.FocalLength, pixelSize))
-			calLog(fmt.Sprintf("Calculated FoV: %.1f°", fov))
-			calLog(fmt.Sprintf("FITS file: %s", frame.FilePath))
+			calLog(fmt.Sprintf("Full frame FoV: %.1f°", fov))
+			calLog(fmt.Sprintf("Image: %s", imagePath))
 
 			// Check file exists
-			if _, err := os.Stat(frame.FilePath); err != nil {
-				calLog(fmt.Sprintf("ERROR: FITS file not found: %v", err))
+			if _, err := os.Stat(imagePath); err != nil {
+				calLog(fmt.Sprintf("ERROR: Image file not found: %v", err))
 				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
 				return
 			}
-			calLog("FITS file found, launching ASTAP plate solver...")
+			calLog("Image file found, cropping center region to reduce FoV...")
 
-			cal, err := platesolve.Calibrate(frame.FilePath, fov)
+			cal, err := platesolve.Calibrate(imagePath, fov, calLog)
 			if err != nil {
 				calLog(fmt.Sprintf("ERROR: Plate solve failed: %v", err))
 				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
