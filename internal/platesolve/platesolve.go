@@ -102,10 +102,8 @@ func CalcPixelScale(wcs *WCS) float64 {
 type LogFunc func(msg string)
 
 // Calibrate runs plate solving and returns the camera orientation calibration.
-// For fisheye all-sky cameras: crops a fixed 1000x1000 pixel region from the center
-// (near zenith, minimal distortion), calculates the FoV of that crop from the
-// pixel scale, and solves with D05 database.
-// fullFov is the full-frame field of view in degrees, imageWidth is pixels across.
+// Uses W08 wide-field database for all-sky fisheye images (FoV > 20°).
+// Falls back to cropping center + D05 if W08 is not available.
 func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc) (*Calibration, error) {
 	if logFn == nil {
 		logFn = func(msg string) { log.Println(msg) }
@@ -114,47 +112,49 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, logFn LogFunc)
 		imageWidth = 3552
 	}
 
-	// For equidistant fisheye: pixel scale = fullFov / imageWidth (degrees per pixel)
-	// Crop a 1000x1000 region from center — large enough for star detection,
-	// small enough FoV for D05 database
-	cropSize := 1000
-	if cropSize > imageWidth/2 {
-		cropSize = imageWidth / 2
+	logFn(fmt.Sprintf("FoV: %.1f° across %d pixels", fullFov, imageWidth))
+
+	// Check if W08 database is available (for wide field > 20°)
+	hasW08 := false
+	if _, err := os.Stat("/opt/astap/w08_0101.001"); err == nil {
+		hasW08 = true
 	}
 
-	// FoV of the crop (equidistant projection: linear relationship)
-	cropFov := fullFov * float64(cropSize) / float64(imageWidth)
+	solvePath := imagePath
+	solveFov := fullFov
 
-	logFn(fmt.Sprintf("Full FoV: %.1f° across %d pixels", fullFov, imageWidth))
-	logFn(fmt.Sprintf("Cropping center %dx%d pixels → crop FoV: %.1f°", cropSize, cropSize, cropFov))
-
-	croppedPath := strings.TrimSuffix(imagePath, ".fits")
-	croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
-
-	// Use ImageMagick to crop center region (fixed pixel size)
-	cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
-	cmd := exec.Command("convert", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		cmd = exec.Command("magick", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return nil, fmt.Errorf("failed to crop image: %w\nOutput: %s", err, string(output))
+	if fullFov > 20 && !hasW08 {
+		// No W08 — crop center to reduce FoV for D05
+		cropSize := 1000
+		if cropSize > imageWidth/2 {
+			cropSize = imageWidth / 2
 		}
+		solveFov = fullFov * float64(cropSize) / float64(imageWidth)
+
+		logFn(fmt.Sprintf("W08 database not found, cropping center %dx%d → %.1f° FoV for D05", cropSize, cropSize, solveFov))
+
+		croppedPath := strings.TrimSuffix(imagePath, ".fits")
+		croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
+
+		cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
+		cmd := exec.Command("convert", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			cmd = exec.Command("magick", imagePath, "-gravity", "center", "-crop", cropGeom, "+repage", croppedPath)
+			output, err = cmd.CombinedOutput()
+			if err != nil {
+				return nil, fmt.Errorf("failed to crop image: %w\nOutput: %s", err, string(output))
+			}
+		}
+		defer os.Remove(croppedPath)
+		solvePath = croppedPath
+	} else if hasW08 {
+		logFn("Using W08 wide-field star database")
 	}
-	defer os.Remove(croppedPath)
 
-	logFn(fmt.Sprintf("Cropped to %s (%dx%d, %.1f° FoV)", croppedPath, cropSize, cropSize, cropFov))
+	logFn(fmt.Sprintf("Solving %s (%.1f° FoV)...", solvePath, solveFov))
 
-	// If crop FoV > 10°, ASTAP may need to downsample less
-	// D05 handles up to ~10° well, up to ~20° with some luck
-	if cropFov > 20 {
-		logFn(fmt.Sprintf("WARNING: Crop FoV %.1f° is large for D05 database. Consider a longer focal length lens.", cropFov))
-	}
-
-	logFn("Running ASTAP plate solver...")
-
-	wcs, err := Solve(croppedPath, 180, cropFov)
+	wcs, err := Solve(solvePath, 180, solveFov)
 	if err != nil {
 		return nil, err
 	}
