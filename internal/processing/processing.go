@@ -52,6 +52,9 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 		applyMask(img, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
 	}
 
+	// Apply auto white balance (gray world assumption)
+	applyAutoWhiteBalance(img)
+
 	// Apply stretch
 	applyStretch(img, stretch)
 
@@ -94,18 +97,20 @@ func debayer(raw []uint16, width, height int, pattern string) *image.RGBA {
 	// GBRG → BayerBG2RGB → R at (0,0), B at (1,1)
 	var redX, redY, blueX, blueY int
 	switch pattern {
+	// Mapping from indi-allsky (https://github.com/aaronwmorris/indi-allsky)
+	// RGGB → cv2.COLOR_BAYER_BG = BG pattern = B at (0,0), R at (1,1)
 	case "RGGB":
-		redX, redY = 0, 1
-		blueX, blueY = 1, 0
-	case "BGGR":
-		redX, redY = 1, 0
-		blueX, blueY = 0, 1
-	case "GRBG":
 		redX, redY = 1, 1
 		blueX, blueY = 0, 0
-	case "GBRG":
+	case "BGGR":
 		redX, redY = 0, 0
 		blueX, blueY = 1, 1
+	case "GRBG":
+		redX, redY = 0, 1
+		blueX, blueY = 1, 0
+	case "GBRG":
+		redX, redY = 1, 0
+		blueX, blueY = 0, 1
 	default:
 		// Unknown pattern, try to detect from data (Green pair detection is reliable)
 		redX, redY, blueX, blueY = detectBayerLayout(raw, width, height, pattern)
@@ -254,6 +259,52 @@ func applyStretch(img *image.RGBA, mode string) {
 					img.SetRGBA(x, y, c)
 				}
 			}
+		}
+	}
+}
+
+// applyAutoWhiteBalance uses the gray world algorithm: scale each channel
+// so its mean equals the overall mean. This corrects the green dominance
+// from Bayer sensors and produces natural-looking colors.
+func applyAutoWhiteBalance(img *image.RGBA) {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	var sumR, sumG, sumB float64
+	count := float64(w * h)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c := img.RGBAAt(x, y)
+			sumR += float64(c.R)
+			sumG += float64(c.G)
+			sumB += float64(c.B)
+		}
+	}
+
+	meanR := sumR / count
+	meanG := sumG / count
+	meanB := sumB / count
+	overall := (meanR + meanG + meanB) / 3.0
+
+	if meanR == 0 || meanG == 0 || meanB == 0 {
+		return
+	}
+
+	gainR := overall / meanR
+	gainG := overall / meanG
+	gainB := overall / meanB
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c := img.RGBAAt(x, y)
+			r := float64(c.R) * gainR
+			g := float64(c.G) * gainG
+			b := float64(c.B) * gainB
+			if r > 255 { r = 255 }
+			if g > 255 { g = 255 }
+			if b > 255 { b = 255 }
+			img.SetRGBA(x, y, color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255})
 		}
 	}
 }
