@@ -62,11 +62,21 @@ func main() {
 				brightness, cloudCover := analyzeFrame(data)
 				skyQuality := classifyQuality(cloudCover)
 
+				// Compute SQM from background brightness (simplified)
+				// SQM ≈ -2.5 * log10(brightness * scale_factor) + zero_point
+				// For a rough estimate: darker = higher SQM (better sky)
+				var sqm *float64
+				if brightness > 0 && brightness < 0.3 { // Only meaningful for dark-ish frames
+					sqmVal := -2.5*math.Log10(brightness) + 20.0 // rough mag/arcsec²
+					sqm = &sqmVal
+				}
+
 				result := models.AnalysisResult{
 					FrameID:    frameID,
 					CloudCover: cloudCover,
 					Brightness: brightness,
 					SkyQuality: skyQuality,
+					SQM:        sqm,
 				}
 				db.GetDB().Create(&result)
 

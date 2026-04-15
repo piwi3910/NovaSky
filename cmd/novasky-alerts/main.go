@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
@@ -49,7 +53,23 @@ func main() {
 				db.GetDB().Create(&alert)
 				log.Printf("[alerts] %s: %s", alertType, message)
 
-				// TODO: webhook, telegram, email dispatch
+				// Dispatch webhook if configured
+				webhookURL := os.Getenv("ALERT_WEBHOOK_URL")
+				if webhookURL != "" {
+					payload, _ := json.Marshal(map[string]string{
+						"type": alertType, "message": message,
+						"timestamp": time.Now().Format(time.RFC3339),
+					})
+					go func() {
+						resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(payload))
+						if err != nil {
+							log.Printf("[alerts] Webhook failed: %v", err)
+							return
+						}
+						resp.Body.Close()
+						log.Printf("[alerts] Webhook sent to %s: %d", webhookURL, resp.StatusCode)
+					}()
+				}
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamAlertsDispatch, consumerGroup, msg.ID)
 				novaskyRedis.ReportHealth(ctx, "alerts")
 			}

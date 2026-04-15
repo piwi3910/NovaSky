@@ -243,6 +243,39 @@ func main() {
 		return c.JSON(fiber.Map{"services": pipeline})
 	})
 
+	// Chart data for in-app graphs
+	app.Get("/api/charts/cloud-cover", func(c *fiber.Ctx) error {
+		hours := c.QueryInt("hours", 24)
+		var results []models.AnalysisResult
+		since := time.Now().Add(-time.Duration(hours) * time.Hour)
+		db.GetDB().Where("analyzed_at > ?", since).Order("analyzed_at ASC").Find(&results)
+		type Point struct {
+			Time  string  `json:"time"`
+			Value float64 `json:"value"`
+		}
+		points := make([]Point, len(results))
+		for i, r := range results {
+			points[i] = Point{Time: r.AnalyzedAt.Format(time.RFC3339), Value: r.CloudCover * 100}
+		}
+		return c.JSON(points)
+	})
+
+	app.Get("/api/charts/exposure", func(c *fiber.Ctx) error {
+		hours := c.QueryInt("hours", 24)
+		var frames []models.Frame
+		since := time.Now().Add(-time.Duration(hours) * time.Hour)
+		db.GetDB().Where("created_at > ?", since).Order("created_at ASC").Find(&frames)
+		type Point struct {
+			Time  string  `json:"time"`
+			Value float64 `json:"value"`
+		}
+		points := make([]Point, len(frames))
+		for i, f := range frames {
+			points[i] = Point{Time: f.CreatedAt.Format(time.RFC3339), Value: f.ExposureMs}
+		}
+		return c.JSON(points)
+	})
+
 	// WebSocket
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
