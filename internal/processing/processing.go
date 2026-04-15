@@ -183,8 +183,9 @@ func DebayerToGray(fitsPath string, outputPath string) error {
 	defer mat.Close()
 
 	// Step 1: CROP CENTER FIRST — remove horizon glow before any processing
-	// Use center 50% to isolate the zenith area (clean dark sky with stars)
-	cropFrac := 0.5
+	// Use center 25% — small enough that fisheye distortion is negligible (~3%)
+	// so ASTAP's quad geometry matching works correctly
+	cropFrac := 0.25
 	cropW := int(float64(mat.Cols()) * cropFrac)
 	cropH := int(float64(mat.Rows()) * cropFrac)
 	x0 := (mat.Cols() - cropW) / 2

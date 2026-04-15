@@ -173,9 +173,9 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 	solveFov := fullFov
 
 	if strings.HasSuffix(imagePath, ".fits") {
-		// DebayerToGray: crops center 50% FIRST (removes horizon glow),
-		// then debayers, grayscale, normalize, CLAHE — all on clean zenith data
-		solveFov = fullFov * 0.5 // crop is 50% of full frame
+		// DebayerToGray: crops center 25% FIRST (removes horizon glow + fisheye distortion),
+		// then debayers, grayscale, stretch — all on clean zenith data
+		solveFov = fullFov * 0.25 // crop is 25% of full frame
 		solvePath2 := strings.TrimSuffix(imagePath, ".fits") + "_solve.jpg"
 		logFn("Crop center 50% → debayer → grayscale → normalize → CLAHE...")
 
