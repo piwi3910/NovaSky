@@ -65,7 +65,7 @@ func DetectMeteors(prev, curr gocv.Mat) []Meteor {
 	// Hough line detection for streaks
 	lines := gocv.NewMat()
 	defer lines.Close()
-	gocv.HoughLinesPWithParams(thresh, &lines, 1, gocv.Pi/180, 50, 20, 10)
+	gocv.HoughLinesPWithParams(thresh, &lines, 1, math.Pi/180, 50, 20, 10)
 
 	var meteors []Meteor
 	for i := 0; i < lines.Rows(); i++ {

@@ -42,7 +42,7 @@ func DetectStars(img gocv.Mat, minBrightness float64) []Star {
 	if threshVal <= 0 {
 		threshVal = 200
 	}
-	gocv.Threshold(gray8, &thresh, threshVal, 255, gocv.ThresholdBinary)
+	gocv.Threshold(gray8, &thresh, float32(threshVal), 255, gocv.ThresholdBinary)
 
 	// Find contours
 	contours := gocv.FindContours(thresh, gocv.RetrievalExternal, gocv.ChainApproxSimple)
@@ -56,13 +56,13 @@ func DetectStars(img gocv.Mat, minBrightness float64) []Star {
 			continue
 		}
 
-		moments := gocv.Moments(c, false)
-		if moments["m00"] == 0 {
+		rect := gocv.BoundingRect(c)
+		if rect.Dx() == 0 || rect.Dy() == 0 {
 			continue
 		}
 
-		cx := moments["m10"] / moments["m00"]
-		cy := moments["m01"] / moments["m00"]
+		cx := float64(rect.Min.X) + float64(rect.Dx())/2.0
+		cy := float64(rect.Min.Y) + float64(rect.Dy())/2.0
 
 		// Compute brightness at center
 		brightness := float64(gray8.GetUCharAt(int(cy), int(cx)))

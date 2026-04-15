@@ -333,7 +333,7 @@ func applyAdaptiveStretch(src *gocv.Mat, dst *gocv.Mat) {
 	// Convert to float
 	srcF := gocv.NewMat()
 	defer srcF.Close()
-	src.ConvertTo(&srcF, gocv.MatTypeCV32FC3, 1.0/65535.0, 0) // normalize to 0-1
+	src.ConvertToWithParams(&srcF, gocv.MatTypeCV32FC3, 1.0/65535.0, 0) // normalize to 0-1
 
 	// Compute median for midtone balance
 	gray := gocv.NewMat()
@@ -403,7 +403,7 @@ func applyGHSStretch(src *gocv.Mat, dst *gocv.Mat, D, b, SP, HP float64) {
 	// Convert to float normalized 0-1
 	srcF := gocv.NewMat()
 	defer srcF.Close()
-	src.ConvertTo(&srcF, gocv.MatTypeCV32FC3, 1.0/65535.0, 0)
+	src.ConvertToWithParams(&srcF, gocv.MatTypeCV32FC3, 1.0/65535.0, 0)
 
 	// Build GHS LUT (256 entries for 8-bit output)
 	lut := gocv.NewMatWithSize(1, 256, gocv.MatTypeCV8UC1)
