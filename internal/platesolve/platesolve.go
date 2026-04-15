@@ -183,12 +183,13 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 	croppedPath := strings.TrimSuffix(imagePath, ".fits")
 	croppedPath = strings.TrimSuffix(croppedPath, ".jpg") + "_crop.jpg"
 
-	// Crop center, then gently stretch to improve star visibility
-	// -sigmoidal-contrast enhances faint stars without blowing out the image
+	// Crop center, then aggressively stretch for star visibility
+	// The JPEG may have minimal stretch — we need stars to pop for ASTAP
 	cropGeom := fmt.Sprintf("%dx%d+0+0", cropSize, cropSize)
 	cmd := exec.Command("convert", imagePath,
 		"-gravity", "center", "-crop", cropGeom, "+repage",
-		"-sigmoidal-contrast", "5,30%",
+		"-auto-level",                    // stretch full range
+		"-sigmoidal-contrast", "10,15%",  // boost faint stars hard
 		croppedPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
