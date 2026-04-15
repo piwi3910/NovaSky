@@ -146,6 +146,31 @@ func main() {
 							// Star detection on processed JPEG — coords match displayed image
 							if detCfg.StarsEnabled {
 								stars := detection.DetectStars(jpegMat, detCfg.StarMinBrightness)
+
+								// Filter out stars in the masked area (outside mask circle)
+								var maskCfg struct {
+									Enabled bool `json:"enabled"`
+									CenterX int  `json:"centerX"`
+									CenterY int  `json:"centerY"`
+									Radius  int  `json:"radius"`
+								}
+								cfg.Get("imaging.mask", &maskCfg)
+								if maskCfg.Enabled && maskCfg.Radius > 0 {
+									var filtered []detection.Star
+									cx := float64(maskCfg.CenterX)
+									cy := float64(maskCfg.CenterY)
+									r := float64(maskCfg.Radius)
+									for _, s := range stars {
+										dx := s.X - cx
+										dy := s.Y - cy
+										if dx*dx+dy*dy <= r*r {
+											filtered = append(filtered, s)
+										}
+									}
+									log.Printf("[detection] Mask filter: %d → %d stars", len(stars), len(filtered))
+									stars = filtered
+								}
+
 								if len(stars) > 0 {
 									starsJSON, _ := json.Marshal(stars)
 									db.GetDB().Create(&models.Detection{
