@@ -257,9 +257,10 @@ func (e *Engine) NeedsRapidCapture() bool {
 	return errorPct > 20.0
 }
 
-// IsConverged returns true when ADU is within the buffer zone of the target,
-// OR when exposure is at min/max limits (best we can do physically).
-// Only converged frames should be sent to the processing pipeline.
+// IsConverged returns true when the frame is good enough to send to the pipeline.
+// Uses a wider threshold (20%) than the PID buffer zone (2%).
+// Frames within 20% of target are sent to pipeline; only frames > 20% off are discarded.
+// The tight 2% buffer only controls PID vs slew mode, not pipeline gating.
 func (e *Engine) IsConverged() bool {
 	if e.lastMedianADU <= 0 {
 		return false
@@ -268,8 +269,8 @@ func (e *Engine) IsConverged() bool {
 	targetPixel := (profile.ADUTarget / 100.0) * 65535.0
 	errorPct := math.Abs(e.lastMedianADU-targetPixel) / targetPixel * 100.0
 
-	// Within buffer zone — truly converged
-	if errorPct <= e.bufferPct {
+	// Within 20% of target — good enough for pipeline
+	if errorPct <= 20.0 {
 		return true
 	}
 
