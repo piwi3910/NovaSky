@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/piwi3910/NovaSky/internal/db"
@@ -24,44 +22,16 @@ func main() {
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})
 
-	// MJPEG stream endpoint
-	app.Get("/stream", func(c *fiber.Ctx) error {
-		c.Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-		c.Set("Cache-Control", "no-cache")
-		c.Set("Connection", "keep-alive")
-
-		c.Context().SetBodyStreamWriter(func(w *fiber.StreamWriter) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				// Get latest frame with JPEG
-				var frame models.Frame
-				if err := db.GetDB().Where("jpeg_path IS NOT NULL").Order("created_at DESC").First(&frame).Error; err != nil {
-					time.Sleep(1 * time.Second)
-					continue
-				}
-
-				if frame.JpegPath != nil {
-					jpegData, err := os.ReadFile(*frame.JpegPath)
-					if err == nil {
-						header := fmt.Sprintf("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(jpegData))
-						w.Write([]byte(header))
-						w.Write(jpegData)
-						w.Write([]byte("\r\n"))
-						w.Flush()
-					}
-				}
-
-				// Frame rate ~1fps (adjustable)
-				time.Sleep(1 * time.Second)
-			}
-		})
-
-		return nil
+	// MJPEG stream — returns latest JPEG (poll for live view)
+	app.Get("/stream/latest", func(c *fiber.Ctx) error {
+		var frame models.Frame
+		if err := db.GetDB().Where("jpeg_path IS NOT NULL").Order("created_at DESC").First(&frame).Error; err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "no frames"})
+		}
+		if frame.JpegPath == nil {
+			return c.Status(404).JSON(fiber.Map{"error": "no JPEG"})
+		}
+		return c.SendFile(*frame.JpegPath)
 	})
 
 	// Status
