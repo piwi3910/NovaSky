@@ -129,6 +129,20 @@ Per profile:
 - Uses sun altitude calculation for day/night profile selection
 - Sub-millisecond exposure support (camera minimum ~0.032ms)
 
+#### Startup Behavior
+- On startup, load last known exposure + gain from DB (persisted each cycle)
+- Resume from last values instead of starting from max exposure
+- Avoids slow convergence after restarts
+
+#### ADU Convergence (PID-style)
+- Two-phase approach, similar to chrony clock discipline:
+  - **Slew mode**: when ADU error > buffer zone (default 2%), apply full ratio correction to converge quickly
+  - **Track mode**: when ADU within buffer zone (±2% of target), switch to PID loop with gentle adjustments
+- PID in track mode: small proportional corrections damped over time to avoid frame-to-frame exposure oscillation
+- Configurable buffer zone percentage (default 2%)
+- Result: smooth exposure transitions, no visible flicker between consecutive frames
+- Drift file: persist current exposure + gain to DB every cycle for restart recovery
+
 ## Processing Worker
 
 Picks up raw FITS frames from `frames.processing` stream:
