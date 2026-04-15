@@ -353,11 +353,29 @@ func main() {
 		}
 		frameCount++
 
-		// Rapid capture when ADU is way off — skip the normal interval
+		// Determine capture pacing
 		if ae.NeedsRapidCapture() {
-			time.Sleep(500 * time.Millisecond) // Minimal delay for camera readout
+			// ADU way off — capture fast to converge
+			time.Sleep(500 * time.Millisecond)
 		} else {
-			time.Sleep(interval)
+			// Check if stacking is enabled for active profile — if so, capture fast
+			// to fill the stack buffer quickly, then the processing service handles the timing
+			var activeProfile struct {
+				StackingEnabled bool `json:"stackingEnabled"`
+				StackingCount   int  `json:"stackingCount"`
+			}
+			if ae.GetMode() == "day" {
+				cfg.Get("imaging.day", &activeProfile)
+			} else {
+				cfg.Get("imaging.night", &activeProfile)
+			}
+
+			if activeProfile.StackingEnabled && activeProfile.StackingCount > 1 {
+				// Stacking mode: capture as fast as possible (just camera readout delay)
+				time.Sleep(500 * time.Millisecond)
+			} else {
+				time.Sleep(interval)
+			}
 		}
 	}
 }
