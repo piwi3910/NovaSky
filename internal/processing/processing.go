@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/piwi3910/NovaSky/internal/fits"
@@ -210,15 +211,35 @@ func DebayerToGray(fitsPath string, outputPath string) error {
 	defer gray.Close()
 	gocv.CvtColor(rgb, &gray, gocv.ColorBGRToGray)
 
-	// Step 4: Convert to 8-bit with percentile stretch (not linear)
-	// Find actual min/max to use full 0-255 range on just the sky data
+	// Step 4: Percentile stretch to 8-bit
+	// Can't use NormMinMax — hot pixels set max too high, compressing everything.
+	// Instead: sample pixels, find 1st and 99th percentile, stretch that range to 0-255.
+	nPix := gray.Rows() * gray.Cols()
+	step := 1
+	if nPix > 100000 {
+		step = nPix / 100000
+	}
+	var samples []int
+	for r := 0; r < gray.Rows(); r += step {
+		for c := 0; c < gray.Cols(); c += step {
+			samples = append(samples, int(gray.GetShortAt(r, c))&0xFFFF)
+		}
+	}
+	sort.Ints(samples)
+	lo := float64(samples[len(samples)/100])        // 1st percentile
+	hi := float64(samples[len(samples)*99/100])      // 99th percentile
+	if hi <= lo {
+		hi = lo + 1
+	}
+	scale := 255.0 / (hi - lo)
+
 	out := gocv.NewMat()
 	defer out.Close()
-	gocv.Normalize(gray, &out, 0, 255, gocv.NormMinMax)
-	out.ConvertTo(&out, gocv.MatTypeCV8UC1)
+	// (pixel - lo) * scale, clamp to 0-255
+	gray.ConvertToWithParams(&out, gocv.MatTypeCV8UC1, float32(scale), float32(-lo*scale))
 
 	// Step 5: CLAHE — local contrast enhancement makes faint stars pop
-	clahe := gocv.NewCLAHEWithParams(6.0, image.Pt(8, 8))
+	clahe := gocv.NewCLAHEWithParams(8.0, image.Pt(8, 8))
 	defer clahe.Close()
 	enhanced := gocv.NewMat()
 	defer enhanced.Close()
