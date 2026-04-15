@@ -74,6 +74,7 @@ func main() {
 				})
 
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesDetection, consumerGroup, msg.ID)
+				novaskyRedis.ReportHealth(ctx, "detection")
 
 				elapsed := time.Since(startTime)
 				novaskyRedis.Client.Set(ctx, "novasky:latency:detection", fmt.Sprintf("%.3f", elapsed.Seconds()), 0)

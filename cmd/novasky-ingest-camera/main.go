@@ -216,6 +216,9 @@ func main() {
 		// Adjust auto-exposure
 		ae.Adjust(medianADU)
 
+		// Report health
+		novaskyRedis.ReportHealth(ctx, "ingest-camera")
+
 		// Publish auto-exposure state (always, even during convergence)
 		aeState, _ := json.Marshal(ae.GetState())
 		novaskyRedis.Publish(ctx, novaskyRedis.ChannelAutoExposure, string(aeState))

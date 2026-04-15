@@ -83,32 +83,34 @@ type MaskConfig struct {
 func debayer(raw []uint16, width, height int, pattern string) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	// RGGB pattern (most common, used by ASI676MC)
-	// Row 0: R G R G ...
-	// Row 1: G B G B ...
+	// FITS Bayer pattern naming convention vs memory layout:
+	// FITS stores bottom-up but we read top-down, so the pattern is
+	// effectively flipped vertically. Additionally, FITS RGGB convention
+	// maps to what OpenCV calls BayerBG (same issue we had before).
+	// Fix: swap R/B interpretation for RGGB/BGGR patterns.
 	isRed := func(x, y int) bool {
 		switch pattern {
 		case "RGGB":
-			return x%2 == 0 && y%2 == 0
+			return x%2 == 1 && y%2 == 1 // FITS RGGB → actually B position in top-down
 		case "BGGR":
-			return x%2 == 1 && y%2 == 1
+			return x%2 == 0 && y%2 == 0
 		case "GRBG":
-			return x%2 == 1 && y%2 == 0
-		case "GBRG":
 			return x%2 == 0 && y%2 == 1
+		case "GBRG":
+			return x%2 == 1 && y%2 == 0
 		}
 		return false
 	}
 	isBlue := func(x, y int) bool {
 		switch pattern {
 		case "RGGB":
-			return x%2 == 1 && y%2 == 1
+			return x%2 == 0 && y%2 == 0 // FITS RGGB → actually R position in top-down
 		case "BGGR":
-			return x%2 == 0 && y%2 == 0
+			return x%2 == 1 && y%2 == 1
 		case "GRBG":
-			return x%2 == 0 && y%2 == 1
-		case "GBRG":
 			return x%2 == 1 && y%2 == 0
+		case "GBRG":
+			return x%2 == 0 && y%2 == 1
 		}
 		return false
 	}

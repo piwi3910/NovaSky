@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -61,9 +62,32 @@ func Publish(ctx context.Context, channel string, message interface{}) error {
 	return Client.Publish(ctx, channel, message).Err()
 }
 
-// GetStreamLength returns the number of pending messages in a stream
+// GetStreamLength returns the total number of messages in a stream
 func GetStreamLength(ctx context.Context, stream string) (int64, error) {
 	return Client.XLen(ctx, stream).Result()
+}
+
+// GetPendingCount returns the number of unacknowledged messages for a consumer group
+func GetPendingCount(ctx context.Context, stream, group string) (int64, error) {
+	pending, err := Client.XPending(ctx, stream, group).Result()
+	if err != nil {
+		return 0, err
+	}
+	return pending.Count, nil
+}
+
+// ReportHealth writes a service heartbeat to Redis (lightweight, no DB)
+func ReportHealth(ctx context.Context, service string) {
+	Client.Set(ctx, "novasky:health:"+service, "running", 60*time.Second)
+}
+
+// GetHealth checks if a service is alive
+func GetServiceHealth(ctx context.Context, service string) string {
+	val, err := Client.Get(ctx, "novasky:health:"+service).Result()
+	if err != nil {
+		return "unknown"
+	}
+	return val
 }
 
 // CreateConsumerGroup creates a consumer group for a stream (idempotent)

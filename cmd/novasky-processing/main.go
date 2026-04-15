@@ -123,6 +123,8 @@ func main() {
 				// Acknowledge message
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamFramesProcessing, consumerGroup, msg.ID)
 
+				novaskyRedis.ReportHealth(ctx, "processing")
+
 				// Store processing latency in Redis for pipeline visualization
 				elapsed := time.Since(startTime)
 				novaskyRedis.Client.Set(ctx, "novasky:latency:processing", fmt.Sprintf("%.3f", elapsed.Seconds()), 0)

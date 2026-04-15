@@ -196,24 +196,21 @@ func main() {
 	app.Get("/api/pipeline", func(c *fiber.Ctx) error {
 		ctx := context.Background()
 
-		// Queue depths
-		qProcessing, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesProcessing)
-		qDetection, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesDetection)
-		qOverlay, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesOverlay)
-		qExport, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesExport)
-		qTimelapse, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesTimelapse)
-		qPolicy, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamPolicyEvaluate)
-		qAlerts, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamAlertsDispatch)
+		// Pending counts (unacknowledged messages — actual backpressure)
+		qProcessing, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesProcessing, "processing")
+		qDetection, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesDetection, "detection")
+		qOverlay, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesOverlay, "overlay")
+		qExport, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesExport, "export")
+		qTimelapse, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamFramesTimelapse, "timelapse")
+		qPolicy, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamPolicyEvaluate, "policy")
+		qAlerts, _ := novaskyRedis.GetPendingCount(ctx, novaskyRedis.StreamAlertsDispatch, "alerts")
 
-		// Service health from DB
-		var services []models.ServiceHealth
-		db.GetDB().Find(&services)
-		healthMap := make(map[string]models.ServiceHealth)
-		for _, s := range services {
-			healthMap[s.Name] = s
+		// Service health from Redis heartbeats
+		getHealth := func(name string) string {
+			return novaskyRedis.GetServiceHealth(ctx, name)
 		}
 
-		// Read actual per-frame processing latencies from Redis (set by workers)
+		// Read actual per-frame processing latencies from Redis
 		var processLatency, detectLatency float64
 		if val, err := novaskyRedis.Client.Get(ctx, "novasky:latency:processing").Float64(); err == nil {
 			processLatency = val
@@ -224,23 +221,23 @@ func main() {
 
 		type ServiceNode struct {
 			Name       string  `json:"name"`
-			Status     string  `json:"status"` // running, stale, stopped
+			Status     string  `json:"status"`
 			QueueDepth int64   `json:"queueDepth"`
-			Latency    float64 `json:"latency"` // seconds since last processed
+			Latency    float64 `json:"latency"`
 		}
 
 		pipeline := []ServiceNode{
-			{Name: "ingest-camera", Status: getStatus(healthMap, "ingest-camera"), QueueDepth: 0, Latency: 0},
-			{Name: "processing", Status: getStatus(healthMap, "processing"), QueueDepth: qProcessing, Latency: processLatency},
-			{Name: "detection", Status: getStatus(healthMap, "detection"), QueueDepth: qDetection, Latency: detectLatency},
-			{Name: "policy", Status: getStatus(healthMap, "policy"), QueueDepth: qPolicy, Latency: 0},
-			{Name: "overlay", Status: getStatus(healthMap, "overlay"), QueueDepth: qOverlay, Latency: 0},
-			{Name: "export", Status: getStatus(healthMap, "export"), QueueDepth: qExport, Latency: 0},
-			{Name: "timelapse", Status: getStatus(healthMap, "timelapse"), QueueDepth: qTimelapse, Latency: 0},
-			{Name: "alerts", Status: getStatus(healthMap, "alerts"), QueueDepth: qAlerts, Latency: 0},
+			{Name: "ingest-camera", Status: getHealth("ingest-camera"), QueueDepth: 0, Latency: 0},
+			{Name: "processing", Status: getHealth("processing"), QueueDepth: qProcessing, Latency: processLatency},
+			{Name: "detection", Status: getHealth("detection"), QueueDepth: qDetection, Latency: detectLatency},
+			{Name: "policy", Status: getHealth("policy"), QueueDepth: qPolicy, Latency: 0},
+			{Name: "overlay", Status: getHealth("overlay"), QueueDepth: qOverlay, Latency: 0},
+			{Name: "export", Status: getHealth("export"), QueueDepth: qExport, Latency: 0},
+			{Name: "timelapse", Status: getHealth("timelapse"), QueueDepth: qTimelapse, Latency: 0},
+			{Name: "alerts", Status: getHealth("alerts"), QueueDepth: qAlerts, Latency: 0},
 			{Name: "api", Status: "running", QueueDepth: 0, Latency: 0},
-			{Name: "alpaca", Status: getStatus(healthMap, "alpaca"), QueueDepth: 0, Latency: 0},
-			{Name: "stream", Status: getStatus(healthMap, "stream"), QueueDepth: 0, Latency: 0},
+			{Name: "alpaca", Status: getHealth("alpaca"), QueueDepth: 0, Latency: 0},
+			{Name: "stream", Status: getHealth("stream"), QueueDepth: 0, Latency: 0},
 		}
 
 		return c.JSON(fiber.Map{"services": pipeline})
@@ -404,13 +401,3 @@ func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
 }
 
-func getStatus(healthMap map[string]models.ServiceHealth, name string) string {
-	h, ok := healthMap[name]
-	if !ok {
-		return "unknown"
-	}
-	if time.Since(h.LastSeen) > 60*time.Second {
-		return "stale"
-	}
-	return h.Status
-}

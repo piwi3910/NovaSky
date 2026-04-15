@@ -45,6 +45,7 @@ func main() {
 			for _, msg := range stream.Messages {
 				evaluate(ctx)
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamPolicyEvaluate, consumerGroup, msg.ID)
+				novaskyRedis.ReportHealth(ctx, "policy")
 			}
 		}
 	}
