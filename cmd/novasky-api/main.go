@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 
+	"github.com/piwi3910/NovaSky/internal/astronomy"
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/diskmanager"
@@ -378,6 +380,42 @@ func main() {
 	app.Get("/api/timelapse/:name", func(c *fiber.Ctx) error {
 		path := filepath.Join("/home/piwi/novasky-data/timelapse", c.Params("name"))
 		return c.SendFile(path)
+	})
+
+	// Astronomy data
+	app.Get("/api/astronomy", func(c *fiber.Ctx) error {
+		var loc struct {
+			Latitude  float64 `json:"latitude"`
+			Longitude float64 `json:"longitude"`
+		}
+		cfg.Get("location", &loc)
+
+		now := time.Now()
+		moonIllum, moonPhase := astronomy.MoonPhase(now)
+		sunTimes := astronomy.CalculateSunTimes(now, loc.Latitude, loc.Longitude)
+
+		// Get latest SQM for Bortle
+		var analysis models.AnalysisResult
+		db.GetDB().Where("sqm IS NOT NULL").Order("analyzed_at DESC").First(&analysis)
+		var bortle int
+		var bortleDesc string
+		if analysis.SQM != nil {
+			bortle = astronomy.SQMToBortle(*analysis.SQM)
+			bortleDesc = astronomy.BortleDescription(bortle)
+		}
+
+		return c.JSON(fiber.Map{
+			"moon": fiber.Map{
+				"illumination": math.Round(moonIllum*1000) / 10,
+				"phase":        moonPhase,
+			},
+			"sun": sunTimes,
+			"bortle": fiber.Map{
+				"class":       bortle,
+				"description": bortleDesc,
+				"sqm":         analysis.SQM,
+			},
+		})
 	})
 
 	// WebSocket

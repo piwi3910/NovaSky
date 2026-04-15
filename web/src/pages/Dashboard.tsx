@@ -13,6 +13,7 @@ interface StatusResponse {
 export function Dashboard() {
   const { data: status } = useApi<StatusResponse>("/api/status", 5000);
   const { data: cloudData } = useApi<Array<{time: string; value: number}>>("/api/charts/cloud-cover?hours=6", 30000);
+  const { data: astroData } = useApi<any>("/api/astronomy", 60000);
   const { autoExposure } = useWebSocket();
 
   const frameId = status?.frame?.id;
@@ -59,6 +60,32 @@ export function Dashboard() {
           <Text size="sm" c="dimmed">No data yet</Text>
         )}
       </Card>
+
+      {astroData && (
+        <Card shadow="sm" padding="lg" withBorder>
+          <Text size="sm" c="dimmed" mb="sm">Astronomy</Text>
+          <Group gap="xl">
+            <Stack gap={2}>
+              <Text size="sm" fw={500}>Moon</Text>
+              <Text size="sm">{astroData.moon?.phase} ({astroData.moon?.illumination}%)</Text>
+            </Stack>
+            {astroData.bortle?.class > 0 && (
+              <Stack gap={2}>
+                <Text size="sm" fw={500}>Bortle Class</Text>
+                <Text size="sm">{astroData.bortle?.class} — {astroData.bortle?.description}</Text>
+              </Stack>
+            )}
+            <Stack gap={2}>
+              <Text size="sm" fw={500}>Sunset</Text>
+              <Text size="sm">{astroData.sun?.sunset ? new Date(astroData.sun.sunset).toLocaleTimeString() : '—'}</Text>
+            </Stack>
+            <Stack gap={2}>
+              <Text size="sm" fw={500}>Astro Twilight</Text>
+              <Text size="sm">{astroData.sun?.astronomicalDusk ? new Date(astroData.sun.astronomicalDusk).toLocaleTimeString() : '—'}</Text>
+            </Stack>
+          </Group>
+        </Card>
+      )}
 
       <Grid>
         <Grid.Col span={{ base: 12, md: 4 }}>
