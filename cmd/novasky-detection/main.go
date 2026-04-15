@@ -73,8 +73,12 @@ func main() {
 			for _, msg := range stream.Messages {
 				frameID := msg.Values["frameId"].(string)
 				filePath := msg.Values["filePath"].(string)
+				jpegPath := ""
+				if jp, ok := msg.Values["jpegPath"].(string); ok {
+					jpegPath = jp
+				}
 
-				// Read FITS and analyze
+				// Read FITS for cloud/brightness analysis
 				data, err := os.ReadFile(filePath)
 				if err != nil {
 					log.Printf("[detection] Read error: %v", err)
@@ -130,22 +134,18 @@ func main() {
 				}
 				db.GetDB().Create(&result)
 
-				// Night frame analysis
+				// Night frame analysis — use processed JPEG (already rotated/stretched)
 				if brightness < 0.3 {
-					header := fits.ParseHeader(data)
-					imageSize := header.NAXIS1
-					if imageSize <= 0 {
-						imageSize = 1304
-					}
+					// Get image size from JPEG for constellation projection
+					imageSize := 3552
+					if jpegPath != "" {
+						jpegMat := gocv.IMRead(jpegPath, gocv.IMReadGrayScale)
+						if !jpegMat.Empty() {
+							imageSize = jpegMat.Cols()
 
-					// Star detection
-					if detCfg.StarsEnabled {
-						pixels := fits.ReadPixels16(data, header)
-						if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
-							mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
-							if err == nil {
-								stars := detection.DetectStars(mat, detCfg.StarMinBrightness)
-								mat.Close()
+							// Star detection on processed JPEG — coords match displayed image
+							if detCfg.StarsEnabled {
+								stars := detection.DetectStars(jpegMat, detCfg.StarMinBrightness)
 								if len(stars) > 0 {
 									starsJSON, _ := json.Marshal(stars)
 									db.GetDB().Create(&models.Detection{
@@ -156,6 +156,7 @@ func main() {
 									log.Printf("[detection] Found %d stars", len(stars))
 								}
 							}
+							jpegMat.Close()
 						}
 					}
 
@@ -176,8 +177,19 @@ func main() {
 							}
 							lst := math.Mod(gmst+loc.Longitude, 360.0) / 15.0
 
+							// Get North rotation from calibration
+							var calCfg struct {
+								NorthAngle float64 `json:"northAngle"`
+								Solved     bool    `json:"solved"`
+							}
+							cfg.Get("camera.calibration", &calCfg)
+							northAngle := 0.0
+							if calCfg.Solved {
+								northAngle = calCfg.NorthAngle
+							}
+
 							if detCfg.ConstellationsEnabled {
-								projected := detection.ProjectConstellations(lst, loc.Latitude, imageSize)
+								projected := detection.ProjectConstellations(lst, loc.Latitude, imageSize, northAngle)
 								if len(projected) > 0 {
 									constJSON, _ := json.Marshal(projected)
 									db.GetDB().Create(&models.Detection{

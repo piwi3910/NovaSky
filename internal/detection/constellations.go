@@ -176,7 +176,8 @@ func init() {
 // ProjectConstellations projects all visible constellations onto an all-sky fisheye image.
 // lst is local sidereal time in hours, lat is observer latitude in degrees.
 // imageSize is the diameter of the circular all-sky image in pixels.
-func ProjectConstellations(lst, lat float64, imageSize int) []ProjectedConstellation {
+// northAngle is the camera rotation in degrees (from calibration) — applied to match the rotated image.
+func ProjectConstellations(lst, lat float64, imageSize int, northAngle float64) []ProjectedConstellation {
 	cx := float64(imageSize) / 2.0
 	cy := float64(imageSize) / 2.0
 	radius := float64(imageSize) / 2.0
@@ -196,8 +197,8 @@ func ProjectConstellations(lst, lat float64, imageSize int) []ProjectedConstella
 				break
 			}
 
-			p1 := altAzToPixel(alt1, az1, cx, cy, radius)
-			p2 := altAzToPixel(alt2, az2, cx, cy, radius)
+			p1 := altAzToPixel(alt1, az1+northAngle, cx, cy, radius)
+			p2 := altAzToPixel(alt2, az2+northAngle, cx, cy, radius)
 
 			projectedLines = append(projectedLines, ProjectedLine{
 				Star1: line.Star1,

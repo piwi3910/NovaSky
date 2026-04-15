@@ -26,27 +26,11 @@ export function Dashboard() {
   const hasJpeg = status?.frame?.jpegPath;
   const { data: overlayData } = useApi<any>(frameId ? `/api/frames/${frameId}/overlay` : "", 10000);
 
-  // Get calibration rotation to transform detection coords
-  const { data: calData } = useApi<any>("/api/platesolve", 60000);
-  const rotDeg = calData?.solved ? calData.northAngle : 0;
-
-  // Transform a point from original image coords to rotated display coords
-  const transformPoint = useCallback((px: number, py: number, imgW: number, imgH: number, dispW: number, dispH: number) => {
-    // Detection coords are in original (unrotated) image space
-    // The displayed image has been rotated by rotDeg degrees
-    const cx = imgW / 2;
-    const cy = imgH / 2;
-    // Processing pipeline: GetRotationMatrix2D(center, -rotDeg, 1.0)
-    // OpenCV angle is counter-clockwise, so -rotDeg = rotDeg clockwise
-    // To map original coords → rotated display: apply same clockwise rotation
-    const rad = rotDeg * Math.PI / 180;
-    const dx = px - cx;
-    const dy = py - cy;
-    const rx = dx * Math.cos(rad) - dy * Math.sin(rad) + cx;
-    const ry = dx * Math.sin(rad) + dy * Math.cos(rad) + cy;
+  // Detection now runs on the processed JPEG — star coords already match displayed image
+  const transformPoint = useCallback((px: number, py: number, imgW: number, _imgH: number, dispW: number, _dispH: number) => {
     const scale = dispW / imgW;
-    return { x: rx * scale, y: ry * scale };
-  }, [rotDeg]);
+    return { x: px * scale, y: py * scale };
+  }, []);
 
   const drawOverlay = useCallback(() => {
     const canvas = canvasRef.current;
