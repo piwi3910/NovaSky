@@ -160,17 +160,29 @@ func Calibrate(imagePath string, fullFov float64, imageWidth int, lat, lon float
 		hasW08 = true
 	}
 
-	// Use raw FITS directly with W08 — ASTAP handles 16-bit FITS natively
-	// and applies its own internal stretching for star detection.
-	// No cropping needed: ASTAP + W08 supports wide field, and we pass zenith hint.
+	if !hasW08 {
+		return nil, fmt.Errorf("W08 star database not installed at /opt/astap/")
+	}
+	logFn("Using W08 wide-field database")
+
+	// Raw Bayer FITS confuses ASTAP's star detection (checkerboard pattern).
+	// Convert to grayscale FITS first using ImageMagick — debayers and extracts luminance.
 	solvePath := imagePath
 	solveFov := fullFov
 
-	if hasW08 {
-		logFn("Using W08 wide-field database — passing raw FITS directly to ASTAP")
-	} else {
-		logFn("W08 not found — plate solving requires W08 for all-sky cameras")
-		return nil, fmt.Errorf("W08 star database not installed at /opt/astap/")
+	if strings.HasSuffix(imagePath, ".fits") {
+		grayPath := strings.TrimSuffix(imagePath, ".fits") + "_gray.fits"
+		logFn("Debayering raw FITS to grayscale for ASTAP...")
+		// -colorspace Gray converts Bayer mosaic to luminance
+		// -depth 16 preserves 16-bit dynamic range
+		cmd := exec.Command("convert", imagePath, "-colorspace", "Gray", "-depth", "16", grayPath)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			logFn(fmt.Sprintf("Warning: grayscale conversion failed, trying raw: %s", string(output)))
+		} else {
+			defer os.Remove(grayPath)
+			solvePath = grayPath
+			logFn("Converted to grayscale FITS")
+		}
 	}
 
 	logFn(fmt.Sprintf("Solving: %s (%.1f° FoV)", solvePath, solveFov))
