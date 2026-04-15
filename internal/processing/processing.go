@@ -160,8 +160,9 @@ func uint16ToBytes(data []uint16) []byte {
 	return buf
 }
 
-// DebayerToGray reads a raw Bayer FITS, debayers it using GoCV, converts to
-// grayscale, and saves as JPEG. Returns the output path. Used for plate solving.
+// DebayerToGray reads a raw Bayer FITS, crops the center, debayers, converts to
+// grayscale with CLAHE enhancement, and saves as JPEG. Used for plate solving.
+// cropFraction controls how much of the center to keep (e.g. 0.5 = center 50%).
 func DebayerToGray(fitsPath string, outputPath string) error {
 	rawData, err := os.ReadFile(fitsPath)
 	if err != nil {
@@ -180,7 +181,17 @@ func DebayerToGray(fitsPath string, outputPath string) error {
 	}
 	defer mat.Close()
 
-	// Debayer
+	// Step 1: CROP CENTER FIRST — remove horizon glow before any processing
+	// Use center 50% to isolate the zenith area (clean dark sky with stars)
+	cropFrac := 0.5
+	cropW := int(float64(mat.Cols()) * cropFrac)
+	cropH := int(float64(mat.Rows()) * cropFrac)
+	x0 := (mat.Cols() - cropW) / 2
+	y0 := (mat.Rows() - cropH) / 2
+	cropped := mat.Region(image.Rect(x0, y0, x0+cropW, y0+cropH))
+	defer cropped.Close()
+
+	// Step 2: Debayer the cropped region
 	bayerPat := header.BayerPat
 	if bayerPat == "" {
 		bayerPat = "RGGB"
@@ -192,21 +203,22 @@ func DebayerToGray(fitsPath string, outputPath string) error {
 
 	rgb := gocv.NewMat()
 	defer rgb.Close()
-	gocv.CvtColor(mat, &rgb, code)
+	gocv.CvtColor(cropped, &rgb, code)
 
-	// Convert to grayscale
+	// Step 3: Convert to grayscale
 	gray := gocv.NewMat()
 	defer gray.Close()
 	gocv.CvtColor(rgb, &gray, gocv.ColorBGRToGray)
 
-	// Convert to 8-bit with auto-stretch
+	// Step 4: Convert to 8-bit with percentile stretch (not linear)
+	// Find actual min/max to use full 0-255 range on just the sky data
 	out := gocv.NewMat()
 	defer out.Close()
-	gray.ConvertToWithParams(&out, gocv.MatTypeCV8UC1, 255.0/65535.0, 0)
+	gocv.Normalize(gray, &out, 0, 255, gocv.NormMinMax)
+	out.ConvertTo(&out, gocv.MatTypeCV8UC1)
 
-	// Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-	// This makes faint stars pop against the background — critical for plate solving
-	clahe := gocv.NewCLAHEWithParams(4.0, image.Pt(8, 8))
+	// Step 5: CLAHE — local contrast enhancement makes faint stars pop
+	clahe := gocv.NewCLAHEWithParams(6.0, image.Pt(8, 8))
 	defer clahe.Close()
 	enhanced := gocv.NewMat()
 	defer enhanced.Close()
