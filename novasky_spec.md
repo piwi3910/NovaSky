@@ -143,6 +143,14 @@ Per profile:
 - Result: smooth exposure transitions, no visible flicker between consecutive frames
 - Drift file: persist current exposure + gain to DB every cycle for restart recovery
 
+#### Predictive Exposure
+- Maintain rolling history of last N exposure values + ADU readings (e.g. last 10)
+- Detect trend direction: exposure increasing (getting darker) or decreasing (getting brighter)
+- Calculate rate of change (exposure drift per cycle)
+- Apply predictive correction: pre-adjust next exposure based on trend, not just current error
+- Handles twilight transitions smoothly — exposure ramps up/down ahead of the curve instead of chasing it
+- Sunrise/sunset are predictable gradients, so trend prediction is highly effective here
+
 ## Processing Worker
 
 Picks up raw FITS frames from `frames.processing` stream:
