@@ -4,6 +4,8 @@ import (
 	"log"
 	"math"
 	"time"
+
+	"github.com/piwi3910/NovaSky/internal/astronomy"
 )
 
 type Profile struct {
@@ -105,50 +107,10 @@ func (e *Engine) GetMode() string {
 }
 
 func (e *Engine) SunAltitude() float64 {
-	return calcSunAltitude(time.Now(), e.latitude, e.longitude)
+	return astronomy.SunAltitude(time.Now(), e.latitude, e.longitude)
 }
 
-// calcSunAltitude computes the sun's altitude in degrees above the horizon
-// using standard astronomical formulas (Jean Meeus, Astronomical Algorithms)
-func calcSunAltitude(t time.Time, lat, lon float64) float64 {
-	// Use Julian day from Unix timestamp (simple and correct)
-	t = t.UTC()
-	jd := float64(t.Unix())/86400.0 + 2440587.5
-
-	// Days since J2000.0
-	n := jd - 2451545.0
-
-	// Mean longitude and anomaly of the sun
-	L := math.Mod(280.460+0.9856474*n, 360.0)
-	g := math.Mod(357.528+0.9856003*n, 360.0)
-	gRad := g * math.Pi / 180.0
-
-	// Ecliptic longitude
-	lambda := L + 1.915*math.Sin(gRad) + 0.020*math.Sin(2*gRad)
-	lambdaRad := lambda * math.Pi / 180.0
-
-	// Obliquity of ecliptic
-	epsilon := 23.439 - 0.0000004*n
-	epsilonRad := epsilon * math.Pi / 180.0
-
-	// Right ascension and declination
-	sinDec := math.Sin(epsilonRad) * math.Sin(lambdaRad)
-	dec := math.Asin(sinDec)
-
-	// Greenwich mean sidereal time
-	gmst := math.Mod(280.46061837+360.98564736629*n, 360.0)
-
-	// Local hour angle
-	ha := (gmst + lon - (math.Atan2(math.Sin(lambdaRad)*math.Cos(epsilonRad), math.Cos(lambdaRad)))*180.0/math.Pi)
-	haRad := math.Mod(ha, 360.0) * math.Pi / 180.0
-
-	// Altitude
-	latRad := lat * math.Pi / 180.0
-	sinAlt := math.Sin(latRad)*math.Sin(dec) + math.Cos(latRad)*math.Cos(dec)*math.Cos(haRad)
-	alt := math.Asin(sinAlt) * 180.0 / math.Pi
-
-	return alt
-}
+// Sun altitude calculation moved to internal/astronomy.SunAltitude()
 
 func (e *Engine) ActiveProfile() Profile {
 	if e.GetMode() == "day" {

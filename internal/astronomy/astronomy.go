@@ -101,6 +101,35 @@ type SunTimes struct {
 	AstronomicalDusk time.Time `json:"astronomicalDusk"`
 }
 
+// SunAltitude returns the sun's altitude in degrees above the horizon
+func SunAltitude(t time.Time, lat, lon float64) float64 {
+	t = t.UTC()
+	jd := float64(t.Unix())/86400.0 + 2440587.5
+	n := jd - 2451545.0
+
+	L := math.Mod(280.460+0.9856474*n, 360.0)
+	g := math.Mod(357.528+0.9856003*n, 360.0)
+	gRad := g * math.Pi / 180.0
+
+	lambda := L + 1.915*math.Sin(gRad) + 0.020*math.Sin(2*gRad)
+	lambdaRad := lambda * math.Pi / 180.0
+
+	epsilon := 23.439 - 0.0000004*n
+	epsilonRad := epsilon * math.Pi / 180.0
+
+	sinDec := math.Sin(epsilonRad) * math.Sin(lambdaRad)
+	dec := math.Asin(sinDec)
+
+	gmst := math.Mod(280.46061837+360.98564736629*n, 360.0)
+
+	ra := math.Atan2(math.Sin(lambdaRad)*math.Cos(epsilonRad), math.Cos(lambdaRad)) * 180.0 / math.Pi
+	ha := math.Mod(gmst+lon-ra, 360.0) * math.Pi / 180.0
+
+	latRad := lat * math.Pi / 180.0
+	sinAlt := math.Sin(latRad)*math.Sin(dec) + math.Cos(latRad)*math.Cos(dec)*math.Cos(ha)
+	return math.Asin(sinAlt) * 180.0 / math.Pi
+}
+
 // CalculateSunTimes computes sunrise/sunset and twilight times
 func CalculateSunTimes(date time.Time, lat, lon float64) SunTimes {
 	times := SunTimes{}
