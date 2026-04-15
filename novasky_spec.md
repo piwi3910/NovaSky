@@ -79,6 +79,7 @@ NovaSky is an observatory conditions platform combining:
 - novasky-storage (remote storage sync: NFS/SMB/S3)
 - novasky-stream (RTSP/HLS live stream)
 - novasky-gpio (sensor reading + dew heater control via GPIO/I2C)
+- novasky-grafana (embedded Grafana, optional)
 
 ## Redis Streams
 
@@ -568,6 +569,36 @@ Pluggable weather data sources — sensor worker aggregates from all enabled sou
 - Custom webhook (receive JSON POSTs from any source)
 - Priority-based: local sensors override API data when available
 - All readings normalized to common format and stored in sensor_readings table
+
+## Metrics & Monitoring
+
+### Prometheus Export
+- `/metrics` endpoint on the API service (Prometheus format)
+- Metrics: frame capture rate, processing latency, detection counts, queue depths, service uptime
+- Sensor metrics: temperature, humidity, pressure, wind, SQM, cloud cover
+- Camera metrics: exposure, gain, ADU, capture duration
+- Safety state as gauge (0=UNSAFE, 1=UNKNOWN, 2=SAFE)
+- Disk usage, frame counts, error rates
+
+### Embedded Grafana
+- Grafana instance bundled as `novasky-grafana` service
+- Pre-configured dashboards: system overview, sky conditions, camera performance, sensor trends
+- Datasource auto-configured to point at Prometheus + PostgreSQL
+- Accessible at `/grafana` via API reverse proxy
+- Optional — can be disabled if using external Grafana
+
+### In-App Charts (React UI)
+All key data also available as charts directly in the web UI (no Grafana dependency):
+- SQM over time (nightly trend)
+- Cloud cover over time
+- Temperature / humidity / dew point / wind
+- Exposure + gain over time (auto-exposure behavior)
+- Safety state timeline
+- Frame capture rate
+- Detection counts (stars, satellites, planes, meteors)
+- Bortle scale history
+- Clear sky forecast vs actual overlay
+- Customizable time range: last hour, tonight, last 7 days, last 30 days, custom
 
 ## Future Enhancements
 
