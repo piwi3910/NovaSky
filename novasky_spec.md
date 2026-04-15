@@ -296,6 +296,37 @@ Picks up frames from `frames.timelapse` stream. Generates various outputs from a
 - On-demand: via API request
 - Rolling: continuous timelapse of last N hours
 
+## Image Processing Tuner
+
+Interactive real-time processing parameter editor in the web UI.
+
+### Workflow
+1. Select any captured frame from the frame gallery (or use the latest)
+2. Processing preview panel shows the frame with current settings applied
+3. Adjust any processing parameter via sliders/controls — preview updates in real-time
+4. Compare: toggle between original raw and processed view
+5. Save settings to day or night profile (button for each)
+
+### Tunable Parameters (all with live preview)
+- Debayer algorithm (nearest, bilinear, VNG, AHD)
+- White balance R/G/B multipliers
+- SCNR strength + channel
+- Stretch mode + parameters:
+  - Linear: black point, white point percentiles
+  - Adaptive: midtones target, highlight protection
+  - GHS: D (stretch factor), b (symmetry), SP (shadow protection), HP (highlight protection)
+- Noise reduction: filter type, kernel size, strength
+- Skyglow reduction: aggressiveness, polynomial order
+- Stacking: frame count, method
+- Brightness, contrast, saturation adjustments
+- Histogram display (live, per-channel RGB + luminance)
+
+### Implementation
+- API endpoint: `POST /api/process-preview` — accepts frame ID + processing params, returns processed JPEG
+- Processing runs server-side (same Go processing code as the worker)
+- UI debounces slider changes to avoid flooding the server
+- Day/night save buttons write directly to the respective imaging profile config in DB
+
 ## Focus Mode
 
 Special mode for camera focusing. Activated from the UI.
