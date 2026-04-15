@@ -192,6 +192,68 @@ func main() {
 		return c.SendString(metrics)
 	})
 
+	// Pipeline status — health, latency, queue depths
+	app.Get("/api/pipeline", func(c *fiber.Ctx) error {
+		ctx := context.Background()
+
+		// Queue depths
+		qProcessing, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesProcessing)
+		qDetection, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesDetection)
+		qOverlay, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesOverlay)
+		qExport, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesExport)
+		qTimelapse, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamFramesTimelapse)
+		qPolicy, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamPolicyEvaluate)
+		qAlerts, _ := novaskyRedis.GetStreamLength(ctx, novaskyRedis.StreamAlertsDispatch)
+
+		// Service health from DB
+		var services []models.ServiceHealth
+		db.GetDB().Find(&services)
+		healthMap := make(map[string]models.ServiceHealth)
+		for _, s := range services {
+			healthMap[s.Name] = s
+		}
+
+		// Latest frame timing for latency calculation
+		var latestFrame models.Frame
+		db.GetDB().Order("created_at DESC").First(&latestFrame)
+
+		var latestAnalysis models.AnalysisResult
+		db.GetDB().Order("analyzed_at DESC").First(&latestAnalysis)
+
+		// Calculate latencies (rough: time between records)
+		var captureLatency, processLatency, detectLatency float64
+		if latestFrame.ID != "" && latestFrame.JpegPath != nil {
+			// Processing latency: how old is the latest JPEG vs capture time
+			processLatency = time.Since(latestFrame.CapturedAt).Seconds()
+		}
+		if latestAnalysis.ID != "" {
+			detectLatency = time.Since(latestAnalysis.AnalyzedAt).Seconds()
+		}
+
+		type ServiceNode struct {
+			Name       string  `json:"name"`
+			Status     string  `json:"status"` // running, stale, stopped
+			QueueDepth int64   `json:"queueDepth"`
+			Latency    float64 `json:"latency"` // seconds since last processed
+		}
+
+		pipeline := []ServiceNode{
+			{Name: "ingest-camera", Status: getStatus(healthMap, "ingest-camera"), QueueDepth: 0, Latency: captureLatency},
+			{Name: "processing", Status: getStatus(healthMap, "processing"), QueueDepth: qProcessing, Latency: processLatency},
+			{Name: "detection", Status: getStatus(healthMap, "detection"), QueueDepth: qDetection, Latency: detectLatency},
+			{Name: "policy", Status: getStatus(healthMap, "policy"), QueueDepth: qPolicy, Latency: 0},
+			{Name: "overlay", Status: getStatus(healthMap, "overlay"), QueueDepth: qOverlay, Latency: 0},
+			{Name: "export", Status: getStatus(healthMap, "export"), QueueDepth: qExport, Latency: 0},
+			{Name: "timelapse", Status: getStatus(healthMap, "timelapse"), QueueDepth: qTimelapse, Latency: 0},
+			{Name: "alerts", Status: getStatus(healthMap, "alerts"), QueueDepth: qAlerts, Latency: 0},
+			{Name: "api", Status: "running", QueueDepth: 0, Latency: 0},
+			{Name: "alpaca", Status: getStatus(healthMap, "alpaca"), QueueDepth: 0, Latency: 0},
+			{Name: "stream", Status: getStatus(healthMap, "stream"), QueueDepth: 0, Latency: 0},
+		}
+
+		return c.JSON(fiber.Map{"services": pipeline})
+	})
+
 	// WebSocket
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
@@ -348,4 +410,15 @@ func indexOf(data []byte, b byte) int {
 
 func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
+}
+
+func getStatus(healthMap map[string]models.ServiceHealth, name string) string {
+	h, ok := healthMap[name]
+	if !ok {
+		return "unknown"
+	}
+	if time.Since(h.LastSeen) > 60*time.Second {
+		return "stale"
+	}
+	return h.Status
 }
