@@ -172,6 +172,31 @@ func main() {
 	log.Printf("[ingest-camera] Starting capture loop: device=%s spool=%s", deviceName, spoolDir)
 
 	frameCount := 0
+	consecutiveFailures := 0
+
+	// reconnectINDI restarts the INDI server and client when the connection dies
+	reconnectINDI := func() {
+		log.Println("[ingest-camera] Reconnecting INDI...")
+		client.Close()
+		server.Stop()
+		time.Sleep(2 * time.Second)
+		if err := server.Start(); err != nil {
+			log.Printf("[ingest-camera] Failed to restart INDI server: %v", err)
+			return
+		}
+		time.Sleep(3 * time.Second)
+		if err := client.Connect(ctx, "localhost", indiPort); err != nil {
+			log.Printf("[ingest-camera] Failed to reconnect INDI client: %v", err)
+			return
+		}
+		devices := client.GetDevices()
+		if len(devices) > 0 {
+			deviceName = devices[0]
+			client.ConnectDevice(deviceName)
+		}
+		consecutiveFailures = 0
+		log.Println("[ingest-camera] INDI reconnected successfully")
+	}
 
 	// Main capture loop
 	for {
@@ -190,9 +215,14 @@ func main() {
 			fitsData, err := client.Capture(deviceName, 0.5, 10*time.Second) // 500ms, fixed
 			if err != nil {
 				log.Printf("[ingest-camera] Focus capture failed: %v", err)
+				consecutiveFailures++
+				if consecutiveFailures >= 3 {
+					reconnectINDI()
+				}
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
+			consecutiveFailures = 0
 			medianADU := fits.MedianADU(fitsData)
 			timestamp := time.Now()
 			filename := fmt.Sprintf("focus_%d.fits", timestamp.UnixMilli())
@@ -225,9 +255,14 @@ func main() {
 		fitsData, err := client.Capture(deviceName, exposureSec, timeout)
 		if err != nil {
 			log.Printf("[ingest-camera] Capture failed: %v", err)
+			consecutiveFailures++
+			if consecutiveFailures >= 3 {
+				reconnectINDI()
+			}
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		consecutiveFailures = 0
 
 		// Save FITS to disk
 		timestamp := time.Now()
