@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -84,16 +83,42 @@ func main() {
 					continue
 				}
 
+				// Read detection config
+				var detCfg struct {
+					CloudEnabled         bool    `json:"cloudEnabled"`
+					SqmEnabled           bool    `json:"sqmEnabled"`
+					StarsEnabled         bool    `json:"starsEnabled"`
+					StarMinBrightness    float64 `json:"starMinBrightness"`
+					MeteorsEnabled       bool    `json:"meteorsEnabled"`
+					PlanesEnabled        bool    `json:"planesEnabled"`
+					PlanesURL            string  `json:"planesUrl"`
+					SatellitesEnabled    bool    `json:"satellitesEnabled"`
+					ConstellationsEnabled bool   `json:"constellationsEnabled"`
+					PlanetsEnabled       bool    `json:"planetsEnabled"`
+					PlateSolveEnabled    bool    `json:"plateSolveEnabled"`
+				}
+				cfg.Get("detection", &detCfg)
+				// Defaults: everything on if not configured
+				if !detCfg.CloudEnabled && !detCfg.StarsEnabled && !detCfg.MeteorsEnabled {
+					// Not configured yet — enable defaults
+					detCfg.CloudEnabled = true
+					detCfg.SqmEnabled = true
+					detCfg.StarsEnabled = true
+					detCfg.ConstellationsEnabled = true
+					detCfg.PlanetsEnabled = true
+					detCfg.PlateSolveEnabled = true
+				}
+				if detCfg.StarMinBrightness <= 0 {
+					detCfg.StarMinBrightness = 200
+				}
+
 				startTime := time.Now()
 				brightness, cloudCover := analyzeFrame(data)
 				skyQuality := classifyQuality(cloudCover)
 
-				// Compute SQM from background brightness (simplified)
-				// SQM ≈ -2.5 * log10(brightness * scale_factor) + zero_point
-				// For a rough estimate: darker = higher SQM (better sky)
 				var sqm *float64
-				if brightness > 0 && brightness < 0.3 { // Only meaningful for dark-ish frames
-					sqmVal := -2.5*math.Log10(brightness) + 20.0 // rough mag/arcsec²
+				if detCfg.SqmEnabled && brightness > 0 && brightness < 0.3 {
+					sqmVal := -2.5*math.Log10(brightness) + 20.0
 					sqm = &sqmVal
 				}
 
@@ -106,8 +131,8 @@ func main() {
 				}
 				db.GetDB().Create(&result)
 
-				// Night frame analysis: stars, constellations, planets
-				if brightness < 0.2 {
+				// Night frame analysis
+				if brightness < 0.3 {
 					header := fits.ParseHeader(data)
 					imageSize := header.NAXIS1
 					if imageSize <= 0 {
@@ -115,76 +140,85 @@ func main() {
 					}
 
 					// Star detection
-					pixels := fits.ReadPixels16(data, header)
-					if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
-						mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
-						if err == nil {
-							stars := detection.DetectStars(mat, 200)
-							mat.Close()
-							if len(stars) > 0 {
-								starsJSON, _ := json.Marshal(stars)
-								db.GetDB().Create(&models.Detection{
-									FrameID: frameID,
-									Type:    "stars",
-									Data:    starsJSON,
-								})
-								log.Printf("[detection] Found %d stars", len(stars))
+					if detCfg.StarsEnabled {
+						pixels := fits.ReadPixels16(data, header)
+						if len(pixels) > 0 && header.NAXIS1 > 0 && header.NAXIS2 > 0 {
+							mat, err := gocv.NewMatFromBytes(header.NAXIS2, header.NAXIS1, gocv.MatTypeCV16UC1, uint16ToBytes(pixels))
+							if err == nil {
+								stars := detection.DetectStars(mat, detCfg.StarMinBrightness)
+								mat.Close()
+								if len(stars) > 0 {
+									starsJSON, _ := json.Marshal(stars)
+									db.GetDB().Create(&models.Detection{
+										FrameID: frameID,
+										Type:    "stars",
+										Data:    starsJSON,
+									})
+									log.Printf("[detection] Found %d stars", len(stars))
+								}
 							}
 						}
 					}
 
 					// Constellation projection and planet positions
-					var loc struct {
-						Latitude  float64 `json:"latitude"`
-						Longitude float64 `json:"longitude"`
-					}
-					cfg.Get("location", &loc)
-					if loc.Latitude != 0 || loc.Longitude != 0 {
-						now := time.Now()
-						jd := float64(now.UTC().Unix())/86400.0 + 2440587.5
-						T := (jd - 2451545.0) / 36525.0
-						gmst := math.Mod(280.46061837+360.98564736629*(jd-2451545.0)+0.000387933*T*T, 360.0)
-						if gmst < 0 {
-							gmst += 360.0
+					if detCfg.ConstellationsEnabled || detCfg.PlanetsEnabled {
+						var loc struct {
+							Latitude  float64 `json:"latitude"`
+							Longitude float64 `json:"longitude"`
 						}
-						lst := math.Mod(gmst+loc.Longitude, 360.0) / 15.0 // LST in hours
-
-						projected := detection.ProjectConstellations(lst, loc.Latitude, imageSize)
-						if len(projected) > 0 {
-							constJSON, _ := json.Marshal(projected)
-							db.GetDB().Create(&models.Detection{
-								FrameID: frameID,
-								Type:    "constellations",
-								Data:    constJSON,
-							})
-							log.Printf("[detection] Projected %d constellations", len(projected))
-						}
-
-						// Planet positions
-						planets := astronomy.PlanetPositions(now, loc.Latitude, loc.Longitude)
-						var visible []astronomy.PlanetPosition
-						for _, p := range planets {
-							if p.Visible {
-								visible = append(visible, p)
+						cfg.Get("location", &loc)
+						if loc.Latitude != 0 || loc.Longitude != 0 {
+							now := time.Now()
+							jd := float64(now.UTC().Unix())/86400.0 + 2440587.5
+							T := (jd - 2451545.0) / 36525.0
+							gmst := math.Mod(280.46061837+360.98564736629*(jd-2451545.0)+0.000387933*T*T, 360.0)
+							if gmst < 0 {
+								gmst += 360.0
 							}
-						}
-						if len(visible) > 0 {
-							planetsJSON, _ := json.Marshal(visible)
-							db.GetDB().Create(&models.Detection{
-								FrameID: frameID,
-								Type:    "planets",
-								Data:    planetsJSON,
-							})
-							log.Printf("[detection] %d planets visible", len(visible))
+							lst := math.Mod(gmst+loc.Longitude, 360.0) / 15.0
+
+							if detCfg.ConstellationsEnabled {
+								projected := detection.ProjectConstellations(lst, loc.Latitude, imageSize)
+								if len(projected) > 0 {
+									constJSON, _ := json.Marshal(projected)
+									db.GetDB().Create(&models.Detection{
+										FrameID: frameID,
+										Type:    "constellations",
+										Data:    constJSON,
+									})
+									log.Printf("[detection] Projected %d constellations", len(projected))
+								}
+							}
+
+							if detCfg.PlanetsEnabled {
+								planets := astronomy.PlanetPositions(now, loc.Latitude, loc.Longitude)
+								var visible []astronomy.PlanetPosition
+								for _, p := range planets {
+									if p.Visible {
+										visible = append(visible, p)
+									}
+								}
+								if len(visible) > 0 {
+									planetsJSON, _ := json.Marshal(visible)
+									db.GetDB().Create(&models.Detection{
+										FrameID: frameID,
+										Type:    "planets",
+										Data:    planetsJSON,
+									})
+									log.Printf("[detection] %d planets visible", len(visible))
+								}
+							}
 						}
 					}
 				}
 
 				// Fetch TLE data periodically (non-blocking)
-				go detection.FetchTLEs() //nolint:errcheck
+				if detCfg.SatellitesEnabled {
+					go detection.FetchTLEs() //nolint:errcheck
+				}
 
 				// Plate solve (once, or periodically)
-				if platesolve.GetCachedWCS() == nil {
+				if detCfg.PlateSolveEnabled && platesolve.GetCachedWCS() == nil {
 					go func(fp string) {
 						log.Printf("[detection] Attempting plate solve on %s", fp)
 						wcs, err := platesolve.Solve(fp, 180)
@@ -225,38 +259,58 @@ func uint16ToBytes(data []uint16) []byte {
 }
 
 func analyzeFrame(fitsData []byte) (brightness, cloudCover float64) {
-	// Find data section
-	headerEnd := 0
-	for i := 0; i < len(fitsData)-80; i += 80 {
-		if string(fitsData[i:i+3]) == "END" {
-			headerEnd = ((i/80 + 1) * 80)
-			headerEnd = ((headerEnd + 2879) / 2880) * 2880
-			break
-		}
-	}
-	if headerEnd == 0 || headerEnd >= len(fitsData) {
+	// Use shared FITS parser (handles BZERO correctly)
+	header := fits.ParseHeader(fitsData)
+	pixels := fits.ReadPixels16(fitsData, header)
+	if len(pixels) == 0 {
 		return 0, 0
 	}
 
-	pixelData := fitsData[headerEnd:]
+	// Sample pixels for speed
 	step := 1
-	nPixels := len(pixelData) / 2
-	if nPixels > 50000 {
-		step = nPixels / 50000
+	if len(pixels) > 50000 {
+		step = len(pixels) / 50000
 	}
 
-	var values []uint16
-	for i := 0; i < len(pixelData)-1; i += 2 * step {
-		values = append(values, binary.BigEndian.Uint16(pixelData[i:i+2]))
-	}
-	if len(values) == 0 {
-		return 0, 0
+	var sampled []uint16
+	for i := 0; i < len(pixels); i += step {
+		sampled = append(sampled, pixels[i])
 	}
 
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	median := float64(values[len(values)/2])
+	sort.Slice(sampled, func(i, j int) bool { return sampled[i] < sampled[j] })
+	median := float64(sampled[len(sampled)/2])
 	brightness = median / 65535.0
-	cloudCover = math.Min(1.0, brightness*2)
+
+	// Compute standard deviation to distinguish clouds from clear sky
+	// Clouds scatter light → higher brightness + lower contrast (low stddev)
+	// Clear sky at night → low brightness + higher contrast (stars = high stddev)
+	var sum, sumSq float64
+	for _, v := range sampled {
+		f := float64(v) / 65535.0
+		sum += f
+		sumSq += f * f
+	}
+	n := float64(len(sampled))
+	mean := sum / n
+	variance := sumSq/n - mean*mean
+	stddev := math.Sqrt(math.Max(0, variance))
+
+	// Cloud detection heuristic:
+	// At night: bright + low contrast = clouds. Dark + high contrast = clear.
+	// During day: always bright, use contrast ratio.
+	// Normalize: contrast below 0.02 suggests uniform (cloudy), above 0.05 suggests structure (clear)
+	contrastScore := math.Min(1.0, stddev/0.05) // 0=uniform, 1=high contrast
+
+	if brightness > 0.4 {
+		// Daytime or very bright — cloud cover from inverse contrast
+		cloudCover = math.Max(0, 1.0-contrastScore)
+	} else {
+		// Night — combine brightness and contrast
+		// Bright + uniform = clouds. Dark + varied = clear.
+		brightnessScore := math.Min(1.0, brightness/0.15) // 0=dark, 1=bright
+		cloudCover = brightnessScore * (1.0 - contrastScore*0.5)
+	}
+	cloudCover = math.Max(0, math.Min(1.0, cloudCover))
 	return
 }
 
