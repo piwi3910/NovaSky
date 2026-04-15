@@ -287,7 +287,9 @@ func (e *Engine) UpdateConfig(day, night Profile, twilightAngle float64, transit
 	e.dayProfile = day
 	e.nightProfile = night
 	e.twilightAngle = twilightAngle
-	e.transitionSpd = transitionSpeed
+	if transitionSpeed > 0 {
+		e.transitionSpd = transitionSpeed
+	}
 	e.latitude = lat
 	e.longitude = lon
 	if bufferPct > 0 {

@@ -146,6 +146,9 @@ func main() {
 				TransitionSpeed int     `json:"transitionSpeed"`
 			}
 			cfg.Get("imaging.twilight", &tw)
+			if tw.TransitionSpeed == 0 {
+				tw.TransitionSpeed = 25
+			}
 			var loc config.LocationConfig
 			cfg.Get("location", &loc)
 			var bp float64
