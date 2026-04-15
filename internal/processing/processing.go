@@ -93,14 +93,14 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 
 	switch stretch {
 	case "none":
-		// Linear 16→8 bit: divide by 256
-		rgb.ConvertTo(&out, gocv.MatTypeCV8UC3)
+		// Linear 16→8 bit: scale by 1/256
+		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
 	case "linear":
 		applyLinearStretch(&rgb, &out)
 	case "auto":
 		applyAutoStretch(&rgb, &out)
 	default:
-		rgb.ConvertTo(&out, gocv.MatTypeCV8UC3)
+		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
 	}
 
 	// Apply mask
