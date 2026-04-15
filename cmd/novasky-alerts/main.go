@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -68,6 +69,26 @@ func main() {
 						}
 						resp.Body.Close()
 						log.Printf("[alerts] Webhook sent to %s: %d", webhookURL, resp.StatusCode)
+					}()
+				}
+				// Dispatch Telegram if configured
+				telegramToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+				telegramChatID := os.Getenv("TELEGRAM_CHAT_ID")
+				if telegramToken != "" && telegramChatID != "" {
+					go func() {
+						text := fmt.Sprintf("🔭 NovaSky: %s\n%s", alertType, message)
+						url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", telegramToken)
+						payload, _ := json.Marshal(map[string]string{
+							"chat_id": telegramChatID,
+							"text":    text,
+						})
+						resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
+						if err != nil {
+							log.Printf("[alerts] Telegram failed: %v", err)
+							return
+						}
+						resp.Body.Close()
+						log.Printf("[alerts] Telegram sent to chat %s", telegramChatID)
 					}()
 				}
 				novaskyRedis.AckMessage(ctx, novaskyRedis.StreamAlertsDispatch, consumerGroup, msg.ID)

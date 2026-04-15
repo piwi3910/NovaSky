@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/piwi3910/NovaSky/internal/db"
@@ -36,6 +38,37 @@ func main() {
 			return c.Status(404).JSON(fiber.Map{"error": "no JPEG"})
 		}
 		return c.SendFile(*frame.JpegPath)
+	})
+
+	// Continuous MJPEG stream (true streaming, not just latest frame)
+	app.Get("/stream/mjpeg", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+		c.Set("Cache-Control", "no-cache")
+
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+
+			var frame models.Frame
+			if err := db.GetDB().Where("jpeg_path IS NOT NULL").Order("created_at DESC").First(&frame).Error; err != nil {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			if frame.JpegPath != nil {
+				jpegData, err := os.ReadFile(*frame.JpegPath)
+				if err == nil {
+					c.Write([]byte(fmt.Sprintf("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(jpegData))))
+					c.Write(jpegData)
+					c.Write([]byte("\r\n"))
+				}
+			}
+
+			time.Sleep(1 * time.Second)
+		}
 	})
 
 	// Status

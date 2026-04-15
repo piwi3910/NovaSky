@@ -26,6 +26,7 @@ import (
 	"github.com/piwi3910/NovaSky/internal/diskmanager"
 	"github.com/piwi3910/NovaSky/internal/models"
 	"github.com/piwi3910/NovaSky/internal/platesolve"
+	"github.com/piwi3910/NovaSky/internal/processing"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
@@ -482,6 +483,33 @@ h1{margin:10px 0;font-size:1.5em}
 		return c.JSON(det)
 	})
 
+	// Nightly summaries
+	app.Get("/api/summaries", func(c *fiber.Ctx) error {
+		limit := c.QueryInt("limit", 30)
+		var summaries []models.NightlySummary
+		db.GetDB().Order("date DESC").Limit(limit).Find(&summaries)
+		return c.JSON(fiber.Map{"summaries": summaries})
+	})
+
+	// Process preview for tuner
+	app.Get("/api/process-preview", func(c *fiber.Ctx) error {
+		frameID := c.Query("frameId")
+		stretch := c.Query("stretch", "none")
+
+		var frame models.Frame
+		if err := db.GetDB().First(&frame, "id = ?", frameID).Error; err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "Frame not found"})
+		}
+
+		// Process with custom params
+		result, err := processing.ProcessFrame(frame.FilePath, stretch, nil)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		return c.SendFile(result.JpegPath)
+	})
+
 	// Astronomy data
 	app.Get("/api/astronomy", func(c *fiber.Ctx) error {
 		var loc struct {
@@ -549,6 +577,24 @@ h1{margin:10px 0;font-size:1.5em}
 
 	// Subscribe to Redis pub/sub and fan out to WebSocket clients
 	go subscribeAndBroadcast(ctx)
+
+	// Stale heartbeat monitoring
+	go func() {
+		for {
+			time.Sleep(60 * time.Second)
+			ctx := context.Background()
+			services := []string{"ingest-camera", "processing", "detection", "policy", "alerts", "overlay", "export", "timelapse"}
+			for _, svc := range services {
+				status := novaskyRedis.GetServiceHealth(ctx, svc)
+				if status == "unknown" {
+					log.Printf("[api] WARNING: Service %s not reporting health", svc)
+					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamAlertsDispatch, map[string]interface{}{
+						"type": "service_down", "message": fmt.Sprintf("Service %s is not responding", svc),
+					})
+				}
+			}
+		}
+	}()
 
 	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)

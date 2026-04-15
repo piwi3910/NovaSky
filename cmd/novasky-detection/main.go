@@ -19,6 +19,7 @@ import (
 	"github.com/piwi3910/NovaSky/internal/detection"
 	"github.com/piwi3910/NovaSky/internal/fits"
 	"github.com/piwi3910/NovaSky/internal/models"
+	"github.com/piwi3910/NovaSky/internal/nightlysummary"
 	"github.com/piwi3910/NovaSky/internal/platesolve"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
@@ -38,6 +39,20 @@ func main() {
 
 	novaskyRedis.CreateConsumerGroup(ctx, novaskyRedis.StreamFramesDetection, consumerGroup)
 	log.Println("[detection] Worker started")
+
+	// Nightly summary generation at dawn
+	go func() {
+		for {
+			now := time.Now()
+			// Run at 6 AM local time
+			next := time.Date(now.Year(), now.Month(), now.Day(), 6, 0, 0, 0, now.Location())
+			if now.After(next) {
+				next = next.AddDate(0, 0, 1)
+			}
+			time.Sleep(time.Until(next))
+			nightlysummary.GenerateYesterday()
+		}
+	}()
 
 	for {
 		select {
