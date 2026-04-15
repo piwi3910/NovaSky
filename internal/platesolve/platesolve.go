@@ -37,6 +37,7 @@ func Solve(fitsPath string, searchRadius float64) (*WCS, error) {
 	cmd := exec.Command("astap_cli",
 		"-f", fitsPath,
 		"-r", fmt.Sprintf("%.1f", searchRadius),
+		"-d", "/opt/astap", // D05 star catalog location
 		"-z", "0", // downsample
 	)
 
