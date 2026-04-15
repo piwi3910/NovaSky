@@ -105,7 +105,8 @@ type SunTimes struct {
 func CalculateSunTimes(date time.Time, lat, lon float64) SunTimes {
 	times := SunTimes{}
 
-	// Julian date for noon
+	// Must use UTC for Julian date calculation
+	date = date.UTC()
 	y, m, d := date.Date()
 	if m <= 2 {
 		y--

@@ -111,7 +111,8 @@ func (e *Engine) SunAltitude() float64 {
 // calcSunAltitude computes the sun's altitude in degrees above the horizon
 // using standard astronomical formulas (Jean Meeus, Astronomical Algorithms)
 func calcSunAltitude(t time.Time, lat, lon float64) float64 {
-	// Julian date
+	// Must use UTC for Julian date calculation
+	t = t.UTC()
 	y, m, d := t.Date()
 	h := float64(t.Hour()) + float64(t.Minute())/60.0 + float64(t.Second())/3600.0
 	if m <= 2 {
