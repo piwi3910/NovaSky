@@ -62,6 +62,7 @@ func main() {
 	var dayProfile, nightProfile autoexposure.Profile
 	cfg.Get("imaging.day", &dayProfile)
 	cfg.Get("imaging.night", &nightProfile)
+	log.Printf("[ingest-camera] Loaded profiles: day=%+v night=%+v", dayProfile, nightProfile)
 
 	var twilightCfg struct {
 		SunAltitude     float64 `json:"sunAltitude"`
