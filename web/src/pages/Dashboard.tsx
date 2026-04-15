@@ -1,6 +1,7 @@
 import { Grid, Card, Text, Title, Stack, Group, Badge } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { PipelineView } from "../components/PipelineView";
 
 interface StatusResponse {
   safety: { state: string; imagingQuality: string; reason: string | null } | null;
@@ -38,6 +39,8 @@ export function Dashboard() {
           <Text c="dimmed" ta="center" py="xl">Waiting for processed frame...</Text>
         )}
       </Card>
+
+      <PipelineView />
 
       <Grid>
         <Grid.Col span={{ base: 12, md: 4 }}>
