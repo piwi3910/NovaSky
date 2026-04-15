@@ -666,6 +666,53 @@ h1{margin:10px 0;font-size:1.5em}
 		return c.JSON(layers)
 	})
 
+	// Overlay layouts CRUD
+	app.Get("/api/overlay/layouts", func(c *fiber.Ctx) error {
+		var layouts []models.OverlayLayout
+		db.GetDB().Order("created_at DESC").Find(&layouts)
+		return c.JSON(layouts)
+	})
+
+	app.Post("/api/overlay/layouts", func(c *fiber.Ctx) error {
+		var layout models.OverlayLayout
+		if err := c.BodyParser(&layout); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid body"})
+		}
+		if layout.Name == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Name is required"})
+		}
+		if err := db.GetDB().Create(&layout).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.Status(201).JSON(layout)
+	})
+
+	app.Put("/api/overlay/layouts/:id", func(c *fiber.Ctx) error {
+		var layout models.OverlayLayout
+		if err := db.GetDB().First(&layout, "id = ?", c.Params("id")).Error; err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "Layout not found"})
+		}
+		if err := c.BodyParser(&layout); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid body"})
+		}
+		db.GetDB().Save(&layout)
+		return c.JSON(layout)
+	})
+
+	app.Delete("/api/overlay/layouts/:id", func(c *fiber.Ctx) error {
+		if err := db.GetDB().Delete(&models.OverlayLayout{}, "id = ?", c.Params("id")).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"deleted": true})
+	})
+
+	app.Put("/api/overlay/layouts/:id/activate", func(c *fiber.Ctx) error {
+		// Deactivate all, then activate this one
+		db.GetDB().Model(&models.OverlayLayout{}).Where("1=1").Update("is_active", false)
+		db.GetDB().Model(&models.OverlayLayout{}).Where("id = ?", c.Params("id")).Update("is_active", true)
+		return c.JSON(fiber.Map{"activated": c.Params("id")})
+	})
+
 	// Overlay data for a frame — returns all detections (stars, meteors, planes, satellites)
 	app.Get("/api/frames/:id/overlay", func(c *fiber.Ctx) error {
 		var detections []models.Detection
