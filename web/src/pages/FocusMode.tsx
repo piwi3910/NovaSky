@@ -14,7 +14,8 @@ export function FocusMode() {
   const [exposure, setExposure] = useState(500);
   const [gain, setGain] = useState(200);
 
-  const stars = starsData?.data ? JSON.parse(starsData.data) : [];
+  const rawData = starsData?.data;
+  const stars = Array.isArray(rawData) ? rawData : (typeof rawData === "string" ? JSON.parse(rawData) : []);
   const avgHFR = stars.length > 0 ? (stars.reduce((s: number, st: any) => s + st.hfr, 0) / stars.length).toFixed(2) : "—";
   const avgFWHM = stars.length > 0 ? (stars.reduce((s: number, st: any) => s + st.fwhm, 0) / stars.length).toFixed(2) : "—";
   const peakBrightness = stars.length > 0 ? Math.max(...stars.map((s: any) => s.brightness)).toFixed(0) : "—";

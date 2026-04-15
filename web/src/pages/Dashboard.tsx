@@ -1,4 +1,5 @@
-import { Grid, Card, Text, Title, Stack, Group, Badge } from "@mantine/core";
+import { useState } from "react";
+import { Grid, Card, Text, Title, Stack, Group, Badge, Modal } from "@mantine/core";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -17,6 +18,7 @@ export function Dashboard() {
   const { data: astroData } = useApi<any>("/api/astronomy", 60000);
   const { autoExposure } = useWebSocket();
 
+  const [fullscreen, setFullscreen] = useState(false);
   const frameId = status?.frame?.id;
   const hasJpeg = status?.frame?.jpegPath;
 
@@ -38,11 +40,20 @@ export function Dashboard() {
         </Group>
         {frameId && hasJpeg ? (
           <img src={`/api/frames/${frameId}/jpeg`} alt="Latest sky frame"
-            style={{ width: "100%", maxHeight: 500, objectFit: "contain", borderRadius: 8, background: "#000" }} />
+            onClick={() => setFullscreen(true)}
+            style={{ width: "100%", maxHeight: 500, objectFit: "contain", borderRadius: 8, background: "#000", cursor: "pointer" }} />
         ) : (
           <Text c="dimmed" ta="center" py="xl">Waiting for processed frame...</Text>
         )}
       </Card>
+
+      <Modal opened={fullscreen} onClose={() => setFullscreen(false)} fullScreen padding={0} withCloseButton={false}>
+        {frameId && hasJpeg && (
+          <img src={`/api/frames/${frameId}/jpeg`} alt="Full size frame"
+            onClick={() => setFullscreen(false)}
+            style={{ width: "100%", height: "100vh", objectFit: "contain", background: "#000", cursor: "pointer" }} />
+        )}
+      </Modal>
 
       <PipelineView />
 
