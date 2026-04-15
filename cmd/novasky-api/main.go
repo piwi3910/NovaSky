@@ -198,46 +198,58 @@ func main() {
 		pixelSize := 2.0
 		fov := platesolve.CalcFoV(optics.FocalLength, pixelSize, 3552)
 
-		// Use raw FITS — ASTAP handles 16-bit FITS natively with better dynamic range than JPEG
-		imagePath := frame.FilePath
-
-		// Run plate solve in background with logging
+		// Run star matching in background
 		go func() {
 			calLog(fmt.Sprintf("Starting calibration on frame %s", frame.ID))
-			calLog(fmt.Sprintf("Focal length: %.1fmm, Pixel size: %.1fµm", optics.FocalLength, pixelSize))
-			calLog(fmt.Sprintf("Full frame FoV: %.1f°", fov))
-			calLog(fmt.Sprintf("Image: %s", imagePath))
+			calLog(fmt.Sprintf("Focal length: %.1fmm → FoV: %.1f°", optics.FocalLength, fov))
 
-			// Check file exists
-			if _, err := os.Stat(imagePath); err != nil {
-				calLog(fmt.Sprintf("ERROR: Image file not found: %v", err))
-				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
-				return
-			}
-			calLog("Image file found, cropping center region to reduce FoV...")
-
-			// Get location for zenith hint
+			// Get location
 			var loc struct {
 				Latitude  float64 `json:"latitude"`
 				Longitude float64 `json:"longitude"`
 			}
 			cfg.Get("location", &loc)
-			calLog(fmt.Sprintf("Observer location: lat=%.4f lon=%.4f", loc.Latitude, loc.Longitude))
-
-			cal, err := platesolve.Calibrate(imagePath, fov, 3552, loc.Latitude, loc.Longitude, calLog)
-			if err != nil {
-				calLog(fmt.Sprintf("ERROR: Plate solve failed: %v", err))
+			if loc.Latitude == 0 && loc.Longitude == 0 {
+				calLog("ERROR: Set location in Camera Settings first")
 				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
 				return
 			}
-			if !cal.Solved {
-				calLog("FAILED: No star match found. Is it night time with a clear sky?")
+			calLog(fmt.Sprintf("Location: lat=%.4f lon=%.4f", loc.Latitude, loc.Longitude))
+
+			// Get latest star detections
+			var det models.Detection
+			if err := db.GetDB().Where("type = ?", "stars").Order("created_at DESC").First(&det).Error; err != nil {
+				calLog("ERROR: No star detections available. Wait for a night frame to be processed.")
+				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
+				return
+			}
+
+			// Parse detected stars
+			var rawStars []struct {
+				X          float64 `json:"x"`
+				Y          float64 `json:"y"`
+				Brightness float64 `json:"brightness"`
+			}
+			json.Unmarshal(det.Data, &rawStars)
+			calLog(fmt.Sprintf("Found %d detected stars from frame %s", len(rawStars), det.FrameID))
+
+			var detected []platesolve.DetectedStar
+			for _, s := range rawStars {
+				detected = append(detected, platesolve.DetectedStar{X: s.X, Y: s.Y, Brightness: s.Brightness})
+			}
+
+			// Solve rotation by matching against bright star catalog
+			calLog("Matching detected stars against bright star catalog...")
+			calLog("Testing 360 rotation angles...")
+
+			cal, err := platesolve.SolveRotation(detected, loc.Latitude, loc.Longitude, 3552, 3552, fov, time.Now())
+			if err != nil {
+				calLog(fmt.Sprintf("FAILED: %v", err))
 				novaskyRedis.Client.Set(ctx, "novasky:calibration:status", "failed", 0)
 				return
 			}
 
 			calLog(fmt.Sprintf("Solved! North angle: %.1f°", cal.NorthAngle))
-			calLog(fmt.Sprintf("Center: RA=%.4f° Dec=%.4f°", cal.RA, cal.Dec))
 			calLog(fmt.Sprintf("Pixel scale: %.2f arcsec/pixel", cal.PixelScale))
 			cfg.Set("camera.calibration", cal)
 			calLog("Calibration saved successfully")
