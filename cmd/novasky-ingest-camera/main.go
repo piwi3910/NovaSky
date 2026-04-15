@@ -72,7 +72,7 @@ func main() {
 		twilightCfg.SunAltitude = -6
 	}
 	if twilightCfg.TransitionSpeed == 0 {
-		twilightCfg.TransitionSpeed = 1
+		twilightCfg.TransitionSpeed = 25
 	}
 
 	var location config.LocationConfig

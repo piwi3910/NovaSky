@@ -62,7 +62,7 @@ func New(day, night Profile, twilightAngle float64, transitionSpeed int, lat, lo
 		historySize = 10
 	}
 	if transitionSpeed <= 0 {
-		transitionSpeed = 1
+		transitionSpeed = 25
 	}
 
 	e := &Engine{
