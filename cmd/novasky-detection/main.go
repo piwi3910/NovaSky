@@ -14,6 +14,7 @@ import (
 
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
+	"github.com/piwi3910/NovaSky/internal/platesolve"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
@@ -79,6 +80,22 @@ func main() {
 					SQM:        sqm,
 				}
 				db.GetDB().Create(&result)
+
+				// Plate solve (once, or periodically)
+				if platesolve.GetCachedWCS() == nil {
+					go func(fp string) {
+						log.Printf("[detection] Attempting plate solve on %s", fp)
+						wcs, err := platesolve.Solve(fp, 180)
+						if err != nil {
+							log.Printf("[detection] Plate solve failed: %v", err)
+							return
+						}
+						if wcs.Solved {
+							platesolve.CacheWCS(wcs)
+							log.Printf("[detection] Plate solved! RA=%.4f Dec=%.4f", wcs.CRVAL1, wcs.CRVAL2)
+						}
+					}(filePath)
+				}
 
 				// Trigger policy evaluation
 				novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]interface{}{

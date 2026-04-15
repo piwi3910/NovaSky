@@ -20,6 +20,7 @@ import (
 	"github.com/piwi3910/NovaSky/internal/config"
 	"github.com/piwi3910/NovaSky/internal/db"
 	"github.com/piwi3910/NovaSky/internal/models"
+	"github.com/piwi3910/NovaSky/internal/platesolve"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
@@ -149,6 +150,19 @@ func main() {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"key": c.Params("key"), "value": body.Value})
+	})
+
+	// Plate solve status
+	app.Get("/api/platesolve", func(c *fiber.Ctx) error {
+		wcs := platesolve.GetCachedWCS()
+		if wcs == nil {
+			return c.JSON(fiber.Map{"solved": false})
+		}
+		return c.JSON(fiber.Map{
+			"solved": true,
+			"ra":     wcs.CRVAL1, "dec": wcs.CRVAL2,
+			"crpix1": wcs.CRPIX1, "crpix2": wcs.CRPIX2,
+		})
 	})
 
 	// Devices (proxy to INDI — return from DB config for now)
