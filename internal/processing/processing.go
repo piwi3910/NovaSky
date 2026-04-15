@@ -84,9 +84,6 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig) (*Proces
 	}
 	defer rgb.Close()
 
-	// Auto white balance (gray world) on 16-bit data
-	applyAutoWB(&rgb)
-
 	// Convert 16-bit to 8-bit based on stretch mode
 	out := gocv.NewMat()
 	defer out.Close()
