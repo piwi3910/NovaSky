@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -114,15 +115,30 @@ func CreateConsumerGroup(ctx context.Context, stream, group string) error {
 	return nil
 }
 
-// ReadFromGroup reads messages from a consumer group
+// ReadFromGroup reads messages from a consumer group.
+// Auto-creates the group if it doesn't exist (handles NOGROUP error).
 func ReadFromGroup(ctx context.Context, stream, group, consumer string, count int64) ([]redis.XStream, error) {
-	return Client.XReadGroup(ctx, &redis.XReadGroupArgs{
+	result, err := Client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    group,
 		Consumer: consumer,
 		Streams:  []string{stream, ">"},
 		Count:    count,
-		Block:    0,
+		Block:    5 * time.Second, // block for 5s instead of forever (allows NOGROUP recovery)
 	}).Result()
+
+	if err != nil && (err.Error() == "NOGROUP No such key '"+stream+"' or consumer group '"+group+"' in XREADGROUP with GROUP option" ||
+		strings.Contains(err.Error(), "NOGROUP")) {
+		// Stream or group doesn't exist yet — create it and retry
+		CreateConsumerGroup(ctx, stream, group)
+		time.Sleep(1 * time.Second)
+		return nil, nil // return empty, caller will retry
+	}
+
+	if err == redis.Nil {
+		return nil, nil // timeout, no messages
+	}
+
+	return result, err
 }
 
 // AckMessage acknowledges a message in a consumer group
