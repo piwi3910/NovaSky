@@ -1,5 +1,41 @@
-d05_star_database.deb
-astap_command-line_version_Linux_aarch64.zip
-w08_star_database_mag08_astap.deb
-*.deb
+# Dependencies
+node_modules/
+web/node_modules/
+
+# Build output
+web/dist/
+bin/
+
+# Package manager
+web/pnpm-lock.yaml
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
+
+# Go binaries
+*.exe
+novasky-*
+!cmd/novasky-*
+
+# External resources
+*.deb
+external/*.zip
+
+# Logs
+*.log
+
+# ASTAP temp files
+*_solve.jpg
+*_crop.jpg
+*_gray.fits
+*.wcs
+*.ini
