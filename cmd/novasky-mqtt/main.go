@@ -215,20 +215,20 @@ func publishHADiscovery() {
 	}
 
 	// Safety binary sensor
-	disc, _ := json.Marshal(map[string]interface{}{
+	disc, _ := json.Marshal(map[string]any{
 		"name": "NovaSky Safety", "unique_id": "novasky_safety",
 		"state_topic": "novasky/safety/state", "device_class": "safety",
 		"payload_on": "ON", "payload_off": "OFF",
-		"device": map[string]interface{}{"identifiers": []string{"novasky"}, "name": "NovaSky", "manufacturer": "NovaSky"},
+		"device": map[string]any{"identifiers": []string{"novasky"}, "name": "NovaSky", "manufacturer": "NovaSky"},
 	})
 	mqttPublish("homeassistant/binary_sensor/novasky_safety/config", string(disc))
 
 	// Temperature sensor
-	disc, _ = json.Marshal(map[string]interface{}{
+	disc, _ = json.Marshal(map[string]any{
 		"name": "NovaSky Temperature", "unique_id": "novasky_temperature",
 		"state_topic": "novasky/sensor/temperature", "unit_of_measurement": "°C",
 		"device_class": "temperature",
-		"device": map[string]interface{}{"identifiers": []string{"novasky"}, "name": "NovaSky"},
+		"device": map[string]any{"identifiers": []string{"novasky"}, "name": "NovaSky"},
 	})
 	mqttPublish("homeassistant/sensor/novasky_temperature/config", string(disc))
 

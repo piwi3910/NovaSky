@@ -98,27 +98,27 @@ func main() {
 				}
 
 				// Build overlay metadata with text variables
-				overlayData := map[string]interface{}{
+				overlayData := map[string]any{
 					"timestamp": now.Format("02/01/2006 15:04:05"),
-					"moon": map[string]interface{}{
+					"moon": map[string]any{
 						"phase":        moonPhase,
 						"illumination": int(moonIllum * 100),
 					},
-					"camera": map[string]interface{}{
+					"camera": map[string]any{
 						"exposure": frame.ExposureMs,
 						"gain":     frame.Gain,
 						"adu":      frame.MedianADU,
 					},
-					"safety": map[string]interface{}{
+					"safety": map[string]any{
 						"state":   safety.State,
 						"quality": safety.ImagingQuality,
 					},
-					"location": map[string]interface{}{
+					"location": map[string]any{
 						"lat": loc.Latitude,
 						"lon": loc.Longitude,
 					},
 					// Text variables for frontend rendering
-					"variables": map[string]interface{}{
+					"variables": map[string]any{
 						"date":       now.Format("2006-01-02"),
 						"time":       now.Format("15:04:05"),
 						"exposure":   frame.ExposureMs,

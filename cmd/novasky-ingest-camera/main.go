@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,13 +38,7 @@ func main() {
 	defer cancel()
 
 	// Handle shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Println("[ingest-camera] Shutting down...")
-		cancel()
-	}()
+	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
 	novaskyRedis.StartHealthReporter(ctx, "ingest-camera")
 
@@ -89,7 +84,9 @@ func main() {
 	if spoolDir == "" {
 		spoolDir = "/home/piwi/novasky-data/frames"
 	}
-	os.MkdirAll(spoolDir, 0755)
+	if err := os.MkdirAll(spoolDir, 0755); err != nil {
+		log.Fatalf("[ingest-camera] Failed to create spool dir: %v", err)
+	}
 
 	// Start INDI server
 	indiPort := 7624
@@ -124,14 +121,13 @@ func main() {
 		bufferPct, historySize,
 	)
 
-	// Restore last exposure/gain from DB
-	var lastDrift models.Config
-	if err := db.GetDB().First(&lastDrift, "key = ?", "autoexposure.drift").Error; err == nil {
-		var drift struct {
-			Exposure float64 `json:"exposure"`
-			Gain     int     `json:"gain"`
-		}
-		json.Unmarshal([]byte(lastDrift.Value), &drift)
+	// Restore last exposure/gain from config
+	var drift struct {
+		Exposure float64 `json:"exposure"`
+		Gain     int     `json:"gain"`
+	}
+	cfg.Get("autoexposure.drift", &drift)
+	if drift.Exposure > 0 {
 		ae.Resume(drift.Exposure, drift.Gain)
 	}
 
@@ -159,13 +155,13 @@ func main() {
 	})
 
 	// Focus mode subscription
-	focusMode := false
+	var focusMode atomic.Bool
 	go func() {
 		sub := novaskyRedis.Client.Subscribe(ctx, "novasky:focus-mode")
 		ch := sub.Channel()
 		for msg := range ch {
-			focusMode = msg.Payload == "start"
-			if focusMode {
+			focusMode.Store(msg.Payload == "start")
+			if focusMode.Load() {
 				log.Println("[ingest-camera] Focus mode STARTED — rapid capture, short exposure")
 			} else {
 				log.Println("[ingest-camera] Focus mode STOPPED — resuming auto-exposure")
@@ -213,7 +209,7 @@ func main() {
 		interval := defaultInterval
 
 		// Focus mode override — rapid capture with fixed short exposure
-		if focusMode {
+		if focusMode.Load() {
 			client.SetGain(deviceName, 200)
 			time.Sleep(50 * time.Millisecond)
 			fitsData, err := client.Capture(deviceName, 0.5, 10*time.Second) // 500ms, fixed
@@ -236,7 +232,7 @@ func main() {
 			// Publish focus frame directly to processing
 			frame := models.Frame{FilePath: filePath, CapturedAt: timestamp, ExposureMs: 500, Gain: 200, MedianADU: &medianADU}
 			db.GetDB().Create(&frame)
-			novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]interface{}{
+			novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]any{
 				"frameId": frame.ID, "filePath": filePath, "stretch": "auto",
 			})
 
@@ -291,10 +287,9 @@ func main() {
 		novaskyRedis.Publish(ctx, novaskyRedis.ChannelAutoExposure, string(aeState))
 
 		// Persist drift for restart recovery
-		drift, _ := json.Marshal(map[string]interface{}{
+		cfg.Set("autoexposure.drift", map[string]any{
 			"exposure": ae.ExposureMs(), "gain": ae.Gain(),
 		})
-		db.GetDB().Save(&models.Config{Key: "autoexposure.drift", Value: drift})
 
 		// Only send to pipeline when exposure has converged
 		// During rapid convergence, frames are just for ADU measurement — don't process them
@@ -310,14 +305,14 @@ func main() {
 			db.GetDB().Create(&frame)
 
 			// Publish to processing stream
-			novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]interface{}{
+			novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesProcessing, map[string]any{
 				"frameId":  frame.ID,
 				"filePath": filePath,
 				"stretch":  ae.ActiveProfile().Stretch,
 			})
 
 			// Publish frame-new event
-			frameEvent, _ := json.Marshal(map[string]interface{}{
+			frameEvent, _ := json.Marshal(map[string]any{
 				"id": frame.ID, "filePath": filePath,
 				"capturedAt": timestamp, "exposureMs": exposureMs,
 				"gain": gain, "medianAdu": medianADU,
@@ -379,5 +374,3 @@ func main() {
 		}
 	}
 }
-
-// computeMedianADU is now in internal/fits package: fits.MedianADU()

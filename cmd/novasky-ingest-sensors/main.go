@@ -135,7 +135,7 @@ func storeWeatherData(ctx context.Context, data *weather.WeatherData, source str
 	novaskyRedis.Publish(ctx, "novasky:weather-update", string(event))
 
 	// Trigger policy evaluation on new weather data
-	novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]interface{}{
+	novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]any{
 		"trigger": "weather", "source": source,
 	})
 

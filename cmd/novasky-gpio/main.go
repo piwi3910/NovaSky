@@ -122,7 +122,7 @@ func main() {
 				}
 
 				// Publish sensor data to Redis
-				event, _ := json.Marshal(map[string]interface{}{
+				event, _ := json.Marshal(map[string]any{
 					"source":      "bme280",
 					"temperature": temp,
 					"humidity":    humidity,

@@ -27,6 +27,8 @@ import (
 
 const consumerGroup = "detection"
 
+var lastTLEFetch time.Time
+
 func main() {
 	log.Println("[detection] Starting...")
 	db.Init()
@@ -48,13 +50,16 @@ func main() {
 	go func() {
 		for {
 			now := time.Now()
-			// Run at 6 AM local time
 			next := time.Date(now.Year(), now.Month(), now.Day(), 6, 0, 0, 0, now.Location())
 			if now.After(next) {
 				next = next.AddDate(0, 0, 1)
 			}
-			time.Sleep(time.Until(next))
-			nightlysummary.GenerateYesterday()
+			select {
+			case <-time.After(time.Until(next)):
+				nightlysummary.GenerateYesterday()
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -291,13 +296,14 @@ func main() {
 					}
 				}
 
-				// Fetch TLE data periodically (non-blocking)
-				if detCfg.SatellitesEnabled {
+				// Fetch TLE data periodically (non-blocking, max once per hour)
+				if detCfg.SatellitesEnabled && time.Since(lastTLEFetch) > time.Hour {
+					lastTLEFetch = time.Now()
 					go detection.FetchTLEs() //nolint:errcheck
 				}
 
 				// Trigger policy evaluation
-				novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]interface{}{
+				novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamPolicyEvaluate, map[string]any{
 					"trigger": "detection", "sourceId": result.ID,
 				})
 
@@ -310,15 +316,6 @@ func main() {
 			}
 		}
 	}
-}
-
-func uint16ToBytes(data []uint16) []byte {
-	buf := make([]byte, len(data)*2)
-	for i, v := range data {
-		buf[i*2] = byte(v)
-		buf[i*2+1] = byte(v >> 8)
-	}
-	return buf
 }
 
 func analyzeFrame(fitsData []byte) (brightness, cloudCover float64) {

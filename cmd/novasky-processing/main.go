@@ -32,12 +32,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		cancel()
-	}()
+	go func() { c := make(chan os.Signal, 1); signal.Notify(c, syscall.SIGINT, syscall.SIGTERM); <-c; cancel() }()
 
 	novaskyRedis.StartHealthReporter(ctx, "processing")
 
@@ -164,7 +159,7 @@ func main() {
 					// Update last frame in DB with the stacked JPEG
 					db.GetDB().Model(&models.Frame{}).Where("id = ?", lastFrame.frameID).Update("jpeg_path", result.JpegPath)
 
-					streamData := map[string]interface{}{
+					streamData := map[string]any{
 						"frameId": lastFrame.frameID, "filePath": lastFrame.filePath, "jpegPath": result.JpegPath,
 					}
 					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesDetection, streamData)
@@ -172,7 +167,7 @@ func main() {
 					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesExport, streamData)
 					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesTimelapse, streamData)
 
-					event, _ := json.Marshal(map[string]interface{}{"id": lastFrame.frameID, "jpegPath": result.JpegPath})
+					event, _ := json.Marshal(map[string]any{"id": lastFrame.frameID, "jpegPath": result.JpegPath})
 					novaskyRedis.Publish(ctx, novaskyRedis.ChannelFrameProcessed, string(event))
 
 					elapsed := time.Since(startTime)
@@ -189,7 +184,7 @@ func main() {
 
 					db.GetDB().Model(&models.Frame{}).Where("id = ?", frameID).Update("jpeg_path", result.JpegPath)
 
-					streamData := map[string]interface{}{
+					streamData := map[string]any{
 						"frameId": frameID, "filePath": filePath, "jpegPath": result.JpegPath,
 					}
 					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesDetection, streamData)
@@ -197,7 +192,7 @@ func main() {
 					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesExport, streamData)
 					novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamFramesTimelapse, streamData)
 
-					event, _ := json.Marshal(map[string]interface{}{"id": frameID, "jpegPath": result.JpegPath})
+					event, _ := json.Marshal(map[string]any{"id": frameID, "jpegPath": result.JpegPath})
 					novaskyRedis.Publish(ctx, novaskyRedis.ChannelFrameProcessed, string(event))
 
 					elapsed := time.Since(startTime)

@@ -183,7 +183,7 @@ func evaluate(ctx context.Context, cfg *config.Manager, gustTracker *windGustTra
 	novaskyRedis.Publish(ctx, novaskyRedis.ChannelSafetyState, string(event))
 
 	if previousState != "" && previousState != state {
-		novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamAlertsDispatch, map[string]interface{}{
+		novaskyRedis.PublishToStream(ctx, novaskyRedis.StreamAlertsDispatch, map[string]any{
 			"type": "safety_" + state, "message": "State changed to " + state,
 		})
 	}

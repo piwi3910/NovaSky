@@ -130,7 +130,7 @@ func uploadToYouTube(accessToken, filePath, title, description, privacy string) 
 	defer file.Close()
 
 	// Create metadata
-	metadata, _ := json.Marshal(map[string]interface{}{
+	metadata, _ := json.Marshal(map[string]any{
 		"snippet": map[string]string{
 			"title":       title,
 			"description": description,
