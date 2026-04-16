@@ -7,6 +7,7 @@ export function SettingsAlerts() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEnabled, setWebhookEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -25,6 +26,8 @@ export function SettingsAlerts() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { webhookUrl, webhookEnabled } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -43,7 +46,7 @@ export function SettingsAlerts() {
           onChange={e => setWebhookUrl(e.currentTarget.value)}
           placeholder="https://example.com/webhook" disabled={!webhookEnabled} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Alert Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Alert Settings"}</Button>
     </Stack>
   );
 }

@@ -9,6 +9,7 @@ export function SettingsPublicPage() {
   const [showCloud, setShowCloud] = useState(true);
   const [showSensors, setShowSensors] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -29,6 +30,8 @@ export function SettingsPublicPage() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { name, showSQM, showCloud, showSensors } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -45,7 +48,7 @@ export function SettingsPublicPage() {
         <Switch label="Show cloud cover" checked={showCloud} onChange={e => setShowCloud(e.currentTarget.checked)} mb="sm" />
         <Switch label="Show sensor readings" checked={showSensors} onChange={e => setShowSensors(e.currentTarget.checked)} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Public Page Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Public Page Settings"}</Button>
       <Card shadow="sm" padding="lg" withBorder>
         <Text size="sm" c="dimmed">Public page URL: <a href="/public" target="_blank">{window.location.origin}/public</a></Text>
       </Card>

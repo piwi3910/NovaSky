@@ -16,6 +16,7 @@ export function SettingsDetection() {
   const [planetsEnabled, setPlanetsEnabled] = useState(true);
   const [cloudThreshold, setCloudThreshold] = useState(80);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -50,6 +51,8 @@ export function SettingsDetection() {
           },
         }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -96,7 +99,7 @@ export function SettingsDetection() {
         </Stack>
       </Card>
 
-      <Button onClick={save} loading={saving} fullWidth>Save Detection Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Detection Settings"}</Button>
     </Stack>
   );
 }

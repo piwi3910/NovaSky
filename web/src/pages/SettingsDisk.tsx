@@ -10,6 +10,7 @@ export function SettingsDisk() {
   const [retainDays, setRetainDays] = useState(30);
   const [minFreeGB, setMinFreeGB] = useState(5);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -28,6 +29,8 @@ export function SettingsDisk() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { retainDays, minFreeGB } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -55,7 +58,7 @@ export function SettingsDisk() {
         <NumberInput label="Keep frames for (days)" value={retainDays} onChange={v => setRetainDays(Number(v))} min={1} max={365} mb="sm" />
         <NumberInput label="Minimum free space (GB)" value={minFreeGB} onChange={v => setMinFreeGB(Number(v))} min={1} max={100} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Disk Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Disk Settings"}</Button>
     </Stack>
   );
 }

@@ -9,6 +9,7 @@ export function SettingsMQTT() {
   const [password, setPassword] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -29,6 +30,8 @@ export function SettingsMQTT() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { broker, username, password, enabled } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -48,7 +51,7 @@ export function SettingsMQTT() {
         <PasswordInput label="Password" value={password} onChange={e => setPassword(e.currentTarget.value)}
           disabled={!enabled} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save MQTT Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save MQTT Settings"}</Button>
     </Stack>
   );
 }

@@ -220,7 +220,7 @@ export function OverlayEditor() {
                   <Table.Td>
                     <Group gap="xs">
                       <Button size="xs" variant="light" onClick={(e) => { e.stopPropagation(); activateLayout(l.id); }} disabled={l.isActive}>Activate</Button>
-                      <Button size="xs" variant="light" color="red" onClick={(e) => { e.stopPropagation(); deleteLayout(l.id); }}>Delete</Button>
+                      <Button size="xs" variant="light" color="red" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete layout "${l.name}"?`)) deleteLayout(l.id); }}>Delete</Button>
                     </Group>
                   </Table.Td>
                 </Table.Tr>

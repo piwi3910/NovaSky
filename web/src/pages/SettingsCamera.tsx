@@ -8,7 +8,7 @@ export function SettingsCamera() {
   const [latitude, setLatitude] = useState(0); const [longitude, setLongitude] = useState(0); const [elevation, setElevation] = useState(0);
   const [gpsdEnabled, setGpsdEnabled] = useState(false);
   const [focalLength, setFocalLength] = useState(0); const [focalRatio, setFocalRatio] = useState(0);
-  const [devices, setDevices] = useState<string[]>([]); const [saving, setSaving] = useState(false);
+  const [devices, setDevices] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
   const [calibration, setCalibration] = useState<any>(null);
   const [calLogs, setCalLogs] = useState<string[]>([]);
@@ -62,6 +62,8 @@ export function SettingsCamera() {
         fetch("/api/config/location", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { latitude, longitude, elevation } }) }),
         fetch("/api/config/camera.optics", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { focalLength, focalRatio } }) }),
       ]);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -173,7 +175,7 @@ export function SettingsCamera() {
           </div>
         )}
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Camera Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Camera Settings"}</Button>
     </Stack>
   );
 }

@@ -9,6 +9,7 @@ export function SettingsExport() {
   const [saveJpeg, setSaveJpeg] = useState(true);
   const [saveOverlay, setSaveOverlay] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -29,6 +30,8 @@ export function SettingsExport() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { dir: exportDir, saveFits, saveJpeg, saveOverlay } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -45,7 +48,7 @@ export function SettingsExport() {
         <Switch label="Save JPEG previews" checked={saveJpeg} onChange={e => setSaveJpeg(e.currentTarget.checked)} mb="sm" />
         <Switch label="Save overlay-burned copies" checked={saveOverlay} onChange={e => setSaveOverlay(e.currentTarget.checked)} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Export Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Export Settings"}</Button>
     </Stack>
   );
 }

@@ -14,6 +14,7 @@ export function SettingsImaging() {
   const [twilightAngle, setTwilightAngle] = useState(-6);
   const [transitionSpeed, setTransitionSpeed] = useState(25);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -39,6 +40,8 @@ export function SettingsImaging() {
         fetch("/api/config/imaging.night", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: nightProfile }) }),
         fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle, transitionSpeed } }) }),
       ]);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -87,7 +90,7 @@ export function SettingsImaging() {
           <NumberInput label="Frames to stack" value={profile.stackingCount ?? 5} onChange={v => updateField("stackingCount", Number(v))} min={2} max={20} description="Number of consecutive frames averaged together" />
         )}
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Imaging Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Imaging Settings"}</Button>
     </Stack>
   );
 }

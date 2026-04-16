@@ -10,6 +10,7 @@ export function SettingsGPIO() {
   const [dewPin, setDewPin] = useState(0);
   const [dewDelta, setDewDelta] = useState(3.0);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -31,6 +32,8 @@ export function SettingsGPIO() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { i2cEnabled, rainPin, dewHeater: { enabled: dewEnabled, pin: dewPin, deltaTemp: dewDelta } } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -51,7 +54,7 @@ export function SettingsGPIO() {
         <NumberInput label="PWM GPIO pin" value={dewPin} onChange={v => setDewPin(Number(v))} min={0} max={27} disabled={!dewEnabled} mb="sm" />
         <NumberInput label="Target delta above dew point (°C)" value={dewDelta} onChange={v => setDewDelta(Number(v))} min={1} max={10} decimalScale={1} disabled={!dewEnabled} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save GPIO Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save GPIO Settings"}</Button>
     </Stack>
   );
 }

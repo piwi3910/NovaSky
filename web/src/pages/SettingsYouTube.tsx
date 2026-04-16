@@ -10,6 +10,7 @@ export function SettingsYouTube() {
   const [refreshToken, setRefreshToken] = useState("");
   const [privacy, setPrivacy] = useState("unlisted");
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -31,6 +32,8 @@ export function SettingsYouTube() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { enabled, clientId, clientSecret, refreshToken, privacy } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -55,7 +58,7 @@ export function SettingsYouTube() {
           { value: "private", label: "Private" },
         ]} value={privacy} onChange={v => setPrivacy(v ?? "unlisted")} disabled={!enabled} />
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save YouTube Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save YouTube Settings"}</Button>
     </Stack>
   );
 }

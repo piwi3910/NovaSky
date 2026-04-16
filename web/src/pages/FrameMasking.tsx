@@ -10,6 +10,7 @@ export function FrameMasking() {
   const [radius, setRadius] = useState(1700);
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
@@ -164,6 +165,8 @@ export function FrameMasking() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: { centerX, centerY, radius, enabled } }),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -182,7 +185,7 @@ export function FrameMasking() {
           <NumberInput label="Radius" value={radius} onChange={v => setRadius(Number(v))} min={50} max={Math.max(imgW, imgH) / 2} />
         </Group>
         <Text size="xs" c="dimmed" mb="md">Click and drag on the image to move the center. Drag near the edge of the circle to resize.</Text>
-        <Button onClick={save} loading={saving} fullWidth>Save Mask Settings</Button>
+        <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Mask Settings"}</Button>
       </Card>
       <Card shadow="sm" padding="lg" withBorder>
         <Text fw={500} mb="sm">Preview</Text>

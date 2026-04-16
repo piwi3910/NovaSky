@@ -130,8 +130,8 @@ export function PipelineView() {
         <ServiceBox node={svc("alerts")} />
       </div>
 
-      {/* Branch row — services fed from processing */}
-      <div style={{ display: "flex", gap: 16, marginLeft: 160, marginBottom: 12 }}>
+      {/* Branch row — services fed from processing, aligned under "processing" node */}
+      <div style={{ display: "flex", gap: 16, paddingLeft: "calc(100px + 24px + 38px)", marginBottom: 12 }}>
         <Stack gap={0} align="center">
           <VerticalArrow depth={Number(overlay.queueDepth)} />
           <ServiceBox node={overlay} />

@@ -17,6 +17,7 @@ export function SettingsStorage() {
   const [smbPassword, setSmbPassword] = useState("");
   const [smbMountPath, setSmbMountPath] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -50,6 +51,8 @@ export function SettingsStorage() {
           smb: { server: smbServer, share: smbShare, username: smbUsername, password: smbPassword, mountPath: smbMountPath },
         }}),
       });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       alert("Failed to save settings. Please try again.");
     } finally {
@@ -90,7 +93,7 @@ export function SettingsStorage() {
           </Stack>
         )}
       </Card>
-      <Button onClick={save} loading={saving} fullWidth>Save Storage Settings</Button>
+      <Button onClick={save} loading={saving} fullWidth color={saved ? "green" : undefined}>{saved ? "Saved!" : "Save Storage Settings"}</Button>
     </Stack>
   );
 }
