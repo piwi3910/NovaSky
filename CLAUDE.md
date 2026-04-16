@@ -54,7 +54,7 @@ cd ~/NovaSky && go build ./cmd/...
 go build -o bin/novasky-api ./cmd/novasky-api
 
 # Run a single service
-DATABASE_URL=postgres://novasky:novasky_dev@localhost:5432/novasky \
+DATABASE_URL=postgres://novasky:<password>@localhost:5432/novasky \
 REDIS_URL=localhost:6379 \
 ./bin/novasky-api
 

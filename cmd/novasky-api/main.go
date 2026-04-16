@@ -30,6 +30,22 @@ import (
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
 
+// redactSecrets masks values for sensitive config keys.
+func redactSecrets(cfg map[string]interface{}) map[string]interface{} {
+	redacted := make(map[string]interface{}, len(cfg))
+	for k, v := range cfg {
+		lower := strings.ToLower(k)
+		if strings.Contains(lower, "secret") || strings.Contains(lower, "password") ||
+			strings.Contains(lower, "token") || strings.Contains(lower, "accesskey") ||
+			strings.Contains(lower, "refreshtoken") {
+			redacted[k] = "********"
+		} else {
+			redacted[k] = v
+		}
+	}
+	return redacted
+}
+
 // WebSocket clients
 var (
 	wsClients   = make(map[*websocket.Conn]bool)
@@ -51,13 +67,45 @@ func main() {
 	app := fiber.New(fiber.Config{
 		BodyLimit: 50 * 1024 * 1024, // 50MB for JPEG frames
 	})
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "http://localhost:5173,http://192.168.10.170:5173",
+		AllowMethods: "GET,POST,PUT,DELETE",
+	}))
+
+	// API key auth middleware — protect PUT/POST/DELETE if NOVASKY_API_KEY is set
+	apiKey := os.Getenv("NOVASKY_API_KEY")
+	if apiKey != "" {
+		app.Use(func(c *fiber.Ctx) error {
+			method := c.Method()
+			if method == "PUT" || method == "POST" || method == "DELETE" {
+				auth := c.Get("Authorization")
+				if auth != "Bearer "+apiKey {
+					return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+				}
+			}
+			return c.Next()
+		})
+	}
+
+	// Data directory
+	dataDir := os.Getenv("NOVASKY_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "/home/piwi/novasky-data"
+	}
 
 	// Health check
 	app.Get("/api/health", func(c *fiber.Ctx) error {
-		var services []models.ServiceHealth
-		db.GetDB().Find(&services)
-		return c.JSON(services)
+		keys, _ := novaskyRedis.Client.Keys(ctx, "novasky:health:*").Result()
+		health := make(map[string]string, len(keys))
+		for _, k := range keys {
+			val, err := novaskyRedis.Client.Get(ctx, k).Result()
+			if err == nil {
+				// Extract service name from key "novasky:health:<name>"
+				name := strings.TrimPrefix(k, "novasky:health:")
+				health[name] = val
+			}
+		}
+		return c.JSON(health)
 	})
 
 	// Status — latest safety, analysis, frame
@@ -81,6 +129,9 @@ func main() {
 	// Frames
 	app.Get("/api/frames", func(c *fiber.Ctx) error {
 		limit := c.QueryInt("limit", 20)
+		if limit > 500 {
+			limit = 500
+		}
 		offset := c.QueryInt("offset", 0)
 		var frames []models.Frame
 		db.GetDB().Order("created_at DESC").Limit(limit).Offset(offset).Find(&frames)
@@ -111,6 +162,9 @@ func main() {
 	// Analysis
 	app.Get("/api/analysis", func(c *fiber.Ctx) error {
 		limit := c.QueryInt("limit", 50)
+		if limit > 500 {
+			limit = 500
+		}
 		offset := c.QueryInt("offset", 0)
 		var results []models.AnalysisResult
 		db.GetDB().Order("analyzed_at DESC").Limit(limit).Offset(offset).Find(&results)
@@ -127,6 +181,9 @@ func main() {
 	// Safety history
 	app.Get("/api/safety-history", func(c *fiber.Ctx) error {
 		limit := c.QueryInt("limit", 100)
+		if limit > 500 {
+			limit = 500
+		}
 		var history []models.SafetyState
 		db.GetDB().Order("evaluated_at DESC").Limit(limit).Find(&history)
 		return c.JSON(fiber.Map{"history": history})
@@ -134,7 +191,12 @@ func main() {
 
 	// Config
 	app.Get("/api/config", func(c *fiber.Ctx) error {
-		return c.JSON(cfg.GetAll())
+		all := cfg.GetAll()
+		// Convert to map[string]interface{} for redaction
+		raw, _ := json.Marshal(all)
+		var m map[string]interface{}
+		json.Unmarshal(raw, &m)
+		return c.JSON(redactSecrets(m))
 	})
 
 	app.Get("/api/config/:key", func(c *fiber.Ctx) error {
@@ -525,6 +587,9 @@ h1{margin:10px 0;font-size:1.5em}
 	// Chart data for in-app graphs
 	app.Get("/api/charts/cloud-cover", func(c *fiber.Ctx) error {
 		hours := c.QueryInt("hours", 24)
+		if hours > 168 {
+			hours = 168
+		}
 		var results []models.AnalysisResult
 		since := time.Now().Add(-time.Duration(hours) * time.Hour)
 		db.GetDB().Where("analyzed_at > ?", since).Order("analyzed_at ASC").Find(&results)
@@ -541,6 +606,9 @@ h1{margin:10px 0;font-size:1.5em}
 
 	app.Get("/api/charts/exposure", func(c *fiber.Ctx) error {
 		hours := c.QueryInt("hours", 24)
+		if hours > 168 {
+			hours = 168
+		}
 		var frames []models.Frame
 		since := time.Now().Add(-time.Duration(hours) * time.Hour)
 		db.GetDB().Where("captured_at > ?", since).Order("captured_at ASC").Find(&frames)
@@ -605,7 +673,7 @@ h1{margin:10px 0;font-size:1.5em}
 
 	// Timelapse list
 	app.Get("/api/timelapse", func(c *fiber.Ctx) error {
-		dir := "/home/piwi/novasky-data/timelapse"
+		dir := filepath.Join(dataDir, "timelapse")
 		entries, _ := filepath.Glob(filepath.Join(dir, "*.mp4"))
 		type TL struct {
 			Name string `json:"name"`
@@ -628,13 +696,17 @@ h1{margin:10px 0;font-size:1.5em}
 
 	// Serve timelapse video
 	app.Get("/api/timelapse/:name", func(c *fiber.Ctx) error {
-		path := filepath.Join("/home/piwi/novasky-data/timelapse", c.Params("name"))
+		name := c.Params("name")
+		if name != filepath.Base(name) || strings.Contains(name, "..") {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid filename"})
+		}
+		path := filepath.Join(dataDir, "timelapse", name)
 		return c.SendFile(path)
 	})
 
 	// Keograms list
 	app.Get("/api/keograms", func(c *fiber.Ctx) error {
-		dir := "/home/piwi/novasky-data/keograms"
+		dir := filepath.Join(dataDir, "keograms")
 		entries, _ := filepath.Glob(filepath.Join(dir, "*.jpg"))
 		type Item struct {
 			Name string `json:"name"`
@@ -657,13 +729,17 @@ h1{margin:10px 0;font-size:1.5em}
 
 	// Serve keogram image
 	app.Get("/api/keograms/:name", func(c *fiber.Ctx) error {
-		path := filepath.Join("/home/piwi/novasky-data/keograms", c.Params("name"))
+		name := c.Params("name")
+		if name != filepath.Base(name) || strings.Contains(name, "..") {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid filename"})
+		}
+		path := filepath.Join(dataDir, "keograms", name)
 		return c.SendFile(path)
 	})
 
 	// Star trails list
 	app.Get("/api/startrails", func(c *fiber.Ctx) error {
-		dir := "/home/piwi/novasky-data/startrails"
+		dir := filepath.Join(dataDir, "startrails")
 		entries, _ := filepath.Glob(filepath.Join(dir, "*.jpg"))
 		type Item struct {
 			Name string `json:"name"`
@@ -686,13 +762,17 @@ h1{margin:10px 0;font-size:1.5em}
 
 	// Serve star trails image
 	app.Get("/api/startrails/:name", func(c *fiber.Ctx) error {
-		path := filepath.Join("/home/piwi/novasky-data/startrails", c.Params("name"))
+		name := c.Params("name")
+		if name != filepath.Base(name) || strings.Contains(name, "..") {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid filename"})
+		}
+		path := filepath.Join(dataDir, "startrails", name)
 		return c.SendFile(path)
 	})
 
 	// Panoramic list
 	app.Get("/api/panoramic", func(c *fiber.Ctx) error {
-		dir := "/home/piwi/novasky-data/panoramic"
+		dir := filepath.Join(dataDir, "panoramic")
 		entries, _ := filepath.Glob(filepath.Join(dir, "*.jpg"))
 		type Item struct {
 			Name string `json:"name"`
@@ -715,7 +795,11 @@ h1{margin:10px 0;font-size:1.5em}
 
 	// Serve panoramic image
 	app.Get("/api/panoramic/:name", func(c *fiber.Ctx) error {
-		path := filepath.Join("/home/piwi/novasky-data/panoramic", c.Params("name"))
+		name := c.Params("name")
+		if name != filepath.Base(name) || strings.Contains(name, "..") {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid filename"})
+		}
+		path := filepath.Join(dataDir, "panoramic", name)
 		return c.SendFile(path)
 	})
 
@@ -822,6 +906,9 @@ h1{margin:10px 0;font-size:1.5em}
 	// Nightly summaries
 	app.Get("/api/summaries", func(c *fiber.Ctx) error {
 		limit := c.QueryInt("limit", 30)
+		if limit > 500 {
+			limit = 500
+		}
 		var summaries []models.NightlySummary
 		db.GetDB().Order("date DESC").Limit(limit).Find(&summaries)
 		return c.JSON(fiber.Map{"summaries": summaries})
@@ -958,7 +1045,8 @@ h1{margin:10px 0;font-size:1.5em}
 
 	go func() {
 		if err := app.Listen(":" + port); err != nil {
-			log.Fatalf("[api] Server error: %v", err)
+			log.Printf("[api] Server error: %v", err)
+			cancel()
 		}
 	}()
 

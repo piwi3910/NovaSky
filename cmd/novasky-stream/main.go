@@ -87,7 +87,8 @@ func main() {
 
 	go func() {
 		if err := app.Listen(":" + port); err != nil {
-			log.Fatalf("[stream] Server error: %v", err)
+			log.Printf("[stream] Server error: %v", err)
+			cancel()
 		}
 	}()
 
