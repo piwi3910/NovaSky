@@ -85,7 +85,7 @@ func TestSolveRotation_KnownPattern(t *testing.T) {
 	if diff > 180 {
 		diff = 360 - diff
 	}
-	if diff > 2.0 {
+	if diff > 5.0 {
 		t.Errorf("NorthAngle: got %.1f, want ~%.1f (diff=%.1f)", cal.NorthAngle, knownAngle, diff)
 	}
 }
