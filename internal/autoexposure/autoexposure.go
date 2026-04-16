@@ -171,9 +171,9 @@ func (e *Engine) Adjust(medianADU float64) {
 	} else if errorPct > e.bufferPct {
 		// CONVERGE mode: close to target, use damped correction
 		e.phase = "converge"
-		error := (targetPixel - medianADU) / targetPixel
+		errFrac := (targetPixel - medianADU) / targetPixel
 		// Apply 30% of error — fast enough to converge, slow enough to not oscillate
-		correction := 1.0 + (error * 0.3)
+		correction := 1.0 + (errFrac * 0.3)
 		e.currentExposure *= correction
 		e.currentExposure = clamp(e.currentExposure, profile.MinExposureMs, profile.MaxExposureMs)
 
@@ -187,9 +187,9 @@ func (e *Engine) Adjust(medianADU float64) {
 	} else {
 		// TRACK mode: within buffer zone, very gentle corrections only
 		e.phase = "track"
-		error := (targetPixel - medianADU) / targetPixel
+		errFrac := (targetPixel - medianADU) / targetPixel
 		// 5% of error — barely nudge, let it settle naturally
-		correction := 1.0 + (error * 0.05)
+		correction := 1.0 + (errFrac * 0.05)
 		e.currentExposure *= correction
 		e.currentExposure = clamp(e.currentExposure, profile.MinExposureMs, profile.MaxExposureMs)
 	}
@@ -320,26 +320,12 @@ func (e *Engine) log(profile Profile) {
 		e.lastMedianADU, profile.ADUTarget)
 }
 
-func clamp(v, min, max float64) float64 {
-	if v < min {
-		return min
+func clamp(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
 	}
-	if v > max {
-		return max
+	if v > hi {
+		return hi
 	}
 	return v
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

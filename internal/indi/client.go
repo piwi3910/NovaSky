@@ -1,6 +1,7 @@
 package indi
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -14,6 +15,14 @@ import (
 	"time"
 )
 
+// Package-level compiled regexps (Fix #4, #16)
+var (
+	reTagName   = regexp.MustCompile(`<(\w+)`)
+	reDevice    = regexp.MustCompile(`device="([^"]+)"`)
+	reName      = regexp.MustCompile(`name="([^"]+)"`)
+	reNumberVal = regexp.MustCompile(`<(?:defNumber|oneNumber)\s+name="([^"]+)"[^>]*>\s*([-\d.eE+]+)`)
+)
+
 type Client struct {
 	conn       net.Conn
 	mu         sync.RWMutex
@@ -22,14 +31,7 @@ type Client struct {
 	blobCh     chan []byte
 	deviceCh   chan string
 	connected  bool
-}
-
-type CaptureResult struct {
-	FilePath   string
-	Data       []byte
-	ExposureMs float64
-	Gain       int
-	MedianADU  float64
+	done       chan struct{}
 }
 
 func NewClient() *Client {
@@ -38,7 +40,17 @@ func NewClient() *Client {
 		properties: make(map[string]map[string]float64),
 		blobCh:     make(chan []byte, 1),
 		deviceCh:   make(chan string, 1),
+		done:       make(chan struct{}),
 	}
+}
+
+// xmlEscape escapes XML special characters in strings interpolated into XML messages.
+func xmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
 }
 
 func (c *Client) Connect(ctx context.Context, host string, port int) error {
@@ -63,6 +75,15 @@ func (c *Client) Connect(ctx context.Context, host string, port int) error {
 		<-c.deviceCh
 	}
 
+	// Close previous done channel and create a fresh one
+	select {
+	case <-c.done:
+		// already closed
+	default:
+		close(c.done)
+	}
+	c.done = make(chan struct{})
+
 	// Start reading in background
 	go c.readLoop()
 
@@ -86,7 +107,7 @@ func (c *Client) Connect(ctx context.Context, host string, port int) error {
 func (c *Client) ConnectDevice(device string) error {
 	log.Printf("[indi] Connecting to device: %s", device)
 	c.setSwitch(device, "CONNECTION", "CONNECT", "On")
-	c.send(fmt.Sprintf(`<enableBLOB device="%s">Also</enableBLOB>`, device))
+	c.send(fmt.Sprintf(`<enableBLOB device="%s">Also</enableBLOB>`, xmlEscape(device)))
 	time.Sleep(3 * time.Second)
 
 	// Set 16-bit capture format
@@ -126,7 +147,7 @@ func (c *Client) GetNumber(device, prop, element string) (float64, bool) {
 func (c *Client) SetNumber(device, prop, element string, value float64) {
 	c.send(fmt.Sprintf(
 		`<newNumberVector device="%s" name="%s"><oneNumber name="%s">%f</oneNumber></newNumberVector>`,
-		device, prop, element, value,
+		xmlEscape(device), xmlEscape(prop), xmlEscape(element), value,
 	))
 }
 
@@ -163,6 +184,15 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	c.connected = false
 	c.mu.Unlock()
+
+	// Signal readLoop to stop
+	select {
+	case <-c.done:
+		// already closed
+	default:
+		close(c.done)
+	}
+
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -178,7 +208,7 @@ func (c *Client) send(xmlStr string) {
 func (c *Client) setSwitch(device, prop, element, state string) {
 	c.send(fmt.Sprintf(
 		`<newSwitchVector device="%s" name="%s"><oneSwitch name="%s">%s</oneSwitch></newSwitchVector>`,
-		device, prop, element, state,
+		xmlEscape(device), xmlEscape(prop), xmlEscape(element), xmlEscape(state),
 	))
 }
 
@@ -189,8 +219,20 @@ func (c *Client) readLoop() {
 	var blobBuf []byte
 
 	for {
+		// Check if we should stop
+		select {
+		case <-c.done:
+			return
+		default:
+		}
+
+		// Set a read deadline so we can periodically check the done channel
+		c.conn.SetReadDeadline(time.Now().Add(1 * time.Second)) //nolint:errcheck
 		n, err := c.conn.Read(buf)
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue // deadline exceeded, loop back to check done
+			}
 			if err != io.EOF {
 				log.Printf("[indi] Read error: %v", err)
 			}
@@ -202,7 +244,7 @@ func (c *Client) readLoop() {
 		if inBlob {
 			blobBuf = append(blobBuf, data...)
 			endMarker := []byte("</setBLOBVector>")
-			if idx := indexOf(blobBuf, endMarker); idx >= 0 {
+			if idx := bytes.Index(blobBuf, endMarker); idx >= 0 {
 				blobSection := blobBuf[:idx]
 				remaining := blobBuf[idx+len(endMarker):]
 				inBlob = false
@@ -219,7 +261,7 @@ func (c *Client) readLoop() {
 		accumulated = append(accumulated, data...)
 
 		// Check for BLOB start
-		blobStart := indexOf(accumulated, []byte("<setBLOBVector"))
+		blobStart := bytes.Index(accumulated, []byte("<setBLOBVector"))
 		if blobStart >= 0 {
 			// Process everything before the BLOB
 			if blobStart > 0 {
@@ -230,7 +272,7 @@ func (c *Client) readLoop() {
 			accumulated = nil
 
 			endMarker := []byte("</setBLOBVector>")
-			if idx := indexOf(blobPart, endMarker); idx >= 0 {
+			if idx := bytes.Index(blobPart, endMarker); idx >= 0 {
 				blobSection := blobPart[len("<setBLOBVector"):idx]
 				remaining := blobPart[idx+len(endMarker):]
 				c.extractBlob(blobSection)
@@ -265,8 +307,7 @@ func (c *Client) processBuffer(buf *[]byte) {
 		}
 
 		// Find tag name
-		re := regexp.MustCompile(`<(\w+)`)
-		match := re.FindStringSubmatch(text[start:])
+		match := reTagName.FindStringSubmatch(text[start:])
 		if match == nil {
 			processed = start + 1
 			continue
@@ -307,8 +348,7 @@ func (c *Client) processXML(data []byte) {
 
 func (c *Client) handleElement(xmlText string) {
 	// Device discovery
-	deviceRe := regexp.MustCompile(`device="([^"]+)"`)
-	deviceMatch := deviceRe.FindStringSubmatch(xmlText)
+	deviceMatch := reDevice.FindStringSubmatch(xmlText)
 	if deviceMatch == nil {
 		return
 	}
@@ -330,15 +370,13 @@ func (c *Client) handleElement(xmlText string) {
 
 	// Track number properties
 	if strings.Contains(xmlText, "NumberVector") {
-		nameRe := regexp.MustCompile(`name="([^"]+)"`)
-		nameMatch := nameRe.FindStringSubmatch(xmlText)
+		nameMatch := reName.FindStringSubmatch(xmlText)
 		if nameMatch == nil {
 			return
 		}
 		propName := nameMatch[1]
 
-		numRe := regexp.MustCompile(`<(?:defNumber|oneNumber)\s+name="([^"]+)"[^>]*>\s*([-\d.eE+]+)`)
-		for _, numMatch := range numRe.FindAllStringSubmatch(xmlText, -1) {
+		for _, numMatch := range reNumberVal.FindAllStringSubmatch(xmlText, -1) {
 			elemName := numMatch[1]
 			val, err := strconv.ParseFloat(strings.TrimSpace(numMatch[2]), 64)
 			if err == nil {
@@ -387,20 +425,3 @@ func (c *Client) extractBlob(blobXML []byte) {
 		log.Println("[indi] Warning: BLOB channel full, dropping")
 	}
 }
-
-func indexOf(data, sep []byte) int {
-	for i := 0; i <= len(data)-len(sep); i++ {
-		found := true
-		for j := 0; j < len(sep); j++ {
-			if data[i+j] != sep[j] {
-				found = false
-				break
-			}
-		}
-		if found {
-			return i
-		}
-	}
-	return -1
-}
-

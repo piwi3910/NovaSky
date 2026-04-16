@@ -4,8 +4,20 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strings"
 	"time"
 )
+
+var validDrivers = map[string]bool{
+	"indi_asi_ccd":         true,
+	"indi_asi_single_ccd":  true,
+	"indi_qhy_ccd":         true,
+	"indi_webcam":          true,
+	"indi_simulator_ccd":   true,
+	"indi_sv305_ccd":       true,
+	"indi_playerone_ccd":   true,
+	"indi_toupbase_ccd":    true,
+}
 
 type Server struct {
 	cmd    *exec.Cmd
@@ -21,6 +33,10 @@ func NewServer(driver string, port int) *Server {
 }
 
 func (s *Server) Start() error {
+	if !validDrivers[s.Driver] && !strings.HasPrefix(s.Driver, "indi_") {
+		return fmt.Errorf("invalid INDI driver: %s", s.Driver)
+	}
+
 	binPath := "/usr/local/bin/indiserver"
 	driverPath := fmt.Sprintf("/usr/local/bin/%s", s.Driver)
 

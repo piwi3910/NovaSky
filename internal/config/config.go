@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/piwi3910/NovaSky/internal/models"
 	novaskyRedis "github.com/piwi3910/NovaSky/internal/redis"
 )
+
+// ErrNotFound is returned by Get when the requested config key does not exist.
+var ErrNotFound = fmt.Errorf("config key not found")
 
 type Manager struct {
 	mu       sync.RWMutex
@@ -36,13 +40,13 @@ func (m *Manager) loadAll() {
 	}
 }
 
-func (m *Manager) Get(key string, dest interface{}) error {
+func (m *Manager) Get(key string, dest any) error {
 	m.mu.RLock()
 	raw, ok := m.values[key]
 	m.mu.RUnlock()
 
 	if !ok {
-		return nil
+		return ErrNotFound
 	}
 	return json.Unmarshal(raw, dest)
 }
@@ -63,7 +67,7 @@ func (m *Manager) GetAll() map[string]json.RawMessage {
 	return result
 }
 
-func (m *Manager) Set(key string, value interface{}) error {
+func (m *Manager) Set(key string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err

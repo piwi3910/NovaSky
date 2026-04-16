@@ -61,6 +61,53 @@ func removeSkyglow(img *gocv.Mat) {
 	imgF.ConvertTo(img, gocv.MatTypeCV16UC3)
 }
 
+// applyPipelineAndSave applies the common post-debayer pipeline (skyglow, SCNR,
+// noise reduction, stretch, rotation, mask) and writes the result as JPEG.
+func applyPipelineAndSave(rgb *gocv.Mat, stretch string, maskCfg *MaskConfig, skyglow bool, rotationDeg float64, outputPath string) (*ProcessResult, error) {
+	if skyglow {
+		removeSkyglow(rgb)
+	}
+	if rgb.Channels() == 3 {
+		applySCNR(rgb)
+	}
+	applyNoiseReduction(rgb, "off", 3)
+
+	out := gocv.NewMat()
+	defer out.Close()
+	switch stretch {
+	case "none":
+		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
+	case "linear":
+		applyLinearStretch(rgb, &out)
+	case "auto":
+		applyAutoStretch(rgb, &out)
+	case "adaptive":
+		applyAdaptiveStretch(rgb, &out)
+	case "ghs":
+		applyGHSStretch(rgb, &out, 2.0, 0.25, 0.0, 0.0)
+	default:
+		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
+	}
+
+	if rotationDeg != 0 {
+		center := image.Pt(out.Cols()/2, out.Rows()/2)
+		rotMat := gocv.GetRotationMatrix2D(center, -rotationDeg, 1.0)
+		defer rotMat.Close()
+		gocv.WarpAffineWithParams(out, &out, rotMat, image.Pt(out.Cols(), out.Rows()),
+			gocv.InterpolationLinear, gocv.BorderConstant, color.RGBA{0, 0, 0, 0})
+	}
+
+	if maskCfg != nil && maskCfg.Enabled {
+		applyMaskCV(&out, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
+	}
+
+	if ok := gocv.IMWriteWithParams(outputPath, out, []int{gocv.IMWriteJpegQuality, 90}); !ok {
+		return nil, fmt.Errorf("failed to write JPEG: %s", outputPath)
+	}
+
+	return &ProcessResult{JpegPath: outputPath}, nil
+}
+
 // ProcessStackedFrames loads multiple FITS files, debayers each, stacks them (mean),
 // then processes the stacked result with stretch/mask/rotation.
 // The output JPEG path is based on the last FITS file in the list.
@@ -115,52 +162,8 @@ func ProcessStackedFrames(fitsPaths []string, stretch string, maskCfg *MaskConfi
 	stacked := StackFrames(mats)
 	defer stacked.Close()
 
-	// Now process the stacked BGR 16-bit image (same pipeline as ProcessFrame after debayer)
-	rgb := stacked
-
-	if skyglow {
-		removeSkyglow(&rgb)
-	}
-	if rgb.Channels() == 3 {
-		applySCNR(&rgb)
-	}
-	applyNoiseReduction(&rgb, "off", 3)
-
-	out := gocv.NewMat()
-	defer out.Close()
-	switch stretch {
-	case "none":
-		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
-	case "linear":
-		applyLinearStretch(&rgb, &out)
-	case "auto":
-		applyAutoStretch(&rgb, &out)
-	case "adaptive":
-		applyAdaptiveStretch(&rgb, &out)
-	case "ghs":
-		applyGHSStretch(&rgb, &out, 2.0, 0.25, 0.0, 0.0)
-	default:
-		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
-	}
-
-	if rotationDeg != 0 {
-		center := image.Pt(out.Cols()/2, out.Rows()/2)
-		rotMat := gocv.GetRotationMatrix2D(center, -rotationDeg, 1.0)
-		defer rotMat.Close()
-		gocv.WarpAffineWithParams(out, &out, rotMat, image.Pt(out.Cols(), out.Rows()),
-			gocv.InterpolationLinear, gocv.BorderConstant, color.RGBA{0, 0, 0, 0})
-	}
-
-	if maskCfg != nil && maskCfg.Enabled {
-		applyMaskCV(&out, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
-	}
-
 	jpegPath := strings.TrimSuffix(fitsPaths[len(fitsPaths)-1], filepath.Ext(fitsPaths[len(fitsPaths)-1])) + ".jpg"
-	if ok := gocv.IMWriteWithParams(jpegPath, out, []int{gocv.IMWriteJpegQuality, 90}); !ok {
-		return nil, fmt.Errorf("failed to write JPEG: %s", jpegPath)
-	}
-
-	return &ProcessResult{JpegPath: jpegPath}, nil
+	return applyPipelineAndSave(&stacked, stretch, maskCfg, skyglow, rotationDeg, jpegPath)
 }
 
 // ProcessFrame debayers, white-balances, stretches, and saves a JPEG from a raw FITS file.
@@ -206,60 +209,8 @@ func ProcessFrame(fitsPath string, stretch string, maskCfg *MaskConfig, skyglow 
 	}
 	defer rgb.Close()
 
-	// Apply skyglow background model subtraction (before SCNR)
-	if skyglow {
-		removeSkyglow(&rgb)
-	}
-
-	// Apply SCNR (remove green cast from color cameras)
-	if bayerPat != "" {
-		applySCNR(&rgb)
-	}
-
-	// Apply noise reduction (currently hardcoded to off)
-	applyNoiseReduction(&rgb, "off", 3)
-
-	// Convert 16-bit to 8-bit based on stretch mode
-	out := gocv.NewMat()
-	defer out.Close()
-
-	switch stretch {
-	case "none":
-		// Linear 16→8 bit: scale by 1/256
-		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
-	case "linear":
-		applyLinearStretch(&rgb, &out)
-	case "auto":
-		applyAutoStretch(&rgb, &out)
-	case "adaptive":
-		applyAdaptiveStretch(&rgb, &out)
-	case "ghs":
-		applyGHSStretch(&rgb, &out, 2.0, 0.25, 0.0, 0.0)
-	default:
-		rgb.ConvertToWithParams(&out, gocv.MatTypeCV8UC3, 1.0/256.0, 0)
-	}
-
-	// Rotate image so North is up (from calibration)
-	if rotationDeg != 0 {
-		center := image.Pt(out.Cols()/2, out.Rows()/2)
-		rotMat := gocv.GetRotationMatrix2D(center, -rotationDeg, 1.0) // negative = clockwise
-		defer rotMat.Close()
-		gocv.WarpAffineWithParams(out, &out, rotMat, image.Pt(out.Cols(), out.Rows()),
-			gocv.InterpolationLinear, gocv.BorderConstant, color.RGBA{0, 0, 0, 0})
-	}
-
-	// Apply mask
-	if maskCfg != nil && maskCfg.Enabled {
-		applyMaskCV(&out, maskCfg.CenterX, maskCfg.CenterY, maskCfg.Radius)
-	}
-
-	// Save JPEG using OpenCV IMWrite (handles BGR natively)
 	jpegPath := strings.TrimSuffix(fitsPath, filepath.Ext(fitsPath)) + ".jpg"
-	if ok := gocv.IMWriteWithParams(jpegPath, out, []int{gocv.IMWriteJpegQuality, 90}); !ok {
-		return nil, fmt.Errorf("failed to write JPEG: %s", jpegPath)
-	}
-
-	return &ProcessResult{JpegPath: jpegPath}, nil
+	return applyPipelineAndSave(&rgb, stretch, maskCfg, skyglow, rotationDeg, jpegPath)
 }
 
 // uint16ToBytes converts a uint16 slice to a byte slice (little-endian for OpenCV)
@@ -269,36 +220,6 @@ func uint16ToBytes(data []uint16) []byte {
 		binary.LittleEndian.PutUint16(buf[i*2:], v)
 	}
 	return buf
-}
-
-// applyAutoWB applies gray world white balance on a 16-bit 3-channel Mat
-func applyAutoWB(img *gocv.Mat) {
-	channels := gocv.Split(*img)
-	defer func() {
-		for _, ch := range channels {
-			ch.Close()
-		}
-	}()
-
-	if len(channels) != 3 {
-		return
-	}
-
-	means := make([]float64, 3)
-	for i, ch := range channels {
-		means[i] = ch.Mean().Val1
-	}
-
-	overall := (means[0] + means[1] + means[2]) / 3.0
-
-	for i, ch := range channels {
-		if means[i] > 0 {
-			gain := overall / means[i]
-			ch.MultiplyFloat(float32(gain))
-		}
-	}
-
-	gocv.Merge(channels, img)
 }
 
 // applyLinearStretch applies a percentile stretch (5th-95th) across all channels
@@ -712,83 +633,3 @@ func GeneratePanoramic(jpegPaths []string, outputPath string) error {
 	}
 	return nil
 }
-
-// applySkyglowReduction removes light pollution gradient by subtracting
-// a smoothed background model from the image.
-func applySkyglowReduction(img *gocv.Mat, aggressiveness int) {
-	if aggressiveness <= 0 {
-		aggressiveness = 64
-	}
-
-	// Create heavily blurred version as background model
-	bg := gocv.NewMat()
-	defer bg.Close()
-	// Use very large kernel to capture only the gradient
-	kernelSize := aggressiveness*2 + 1
-	if kernelSize > 255 {
-		kernelSize = 255
-	}
-	// Kernel size must be odd
-	if kernelSize%2 == 0 {
-		kernelSize++
-	}
-	gocv.GaussianBlur(*img, &bg, image.Pt(kernelSize, kernelSize), 0, 0, gocv.BorderDefault)
-
-	// Subtract background model
-	gocv.Subtract(*img, bg, img)
-}
-
-// SubtractDarkFrame subtracts a dark frame from the image.
-// Both must be same dimensions and type.
-func SubtractDarkFrame(img *gocv.Mat, dark gocv.Mat) {
-	if img.Rows() != dark.Rows() || img.Cols() != dark.Cols() {
-		return
-	}
-	gocv.Subtract(*img, dark, img)
-}
-
-// ApplyFlatCorrection divides image by normalized flat frame to correct vignetting.
-func ApplyFlatCorrection(img *gocv.Mat, flat gocv.Mat) {
-	if img.Rows() != flat.Rows() || img.Cols() != flat.Cols() {
-		return
-	}
-	// Normalize flat to mean = 1.0
-	flatF := gocv.NewMat()
-	defer flatF.Close()
-	flat.ConvertTo(&flatF, gocv.MatTypeCV32FC3)
-	mean := flatF.Mean()
-	avgMean := (mean.Val1 + mean.Val2 + mean.Val3) / 3.0
-	if avgMean > 0 {
-		flatF.DivideFloat(float32(avgMean))
-	}
-
-	// Divide image by normalized flat
-	imgF := gocv.NewMat()
-	defer imgF.Close()
-	img.ConvertTo(&imgF, gocv.MatTypeCV32FC3)
-	gocv.Divide(imgF, flatF, &imgF)
-	imgF.ConvertTo(img, img.Type())
-}
-
-// InterpolateBadPixels replaces bad pixels with the median of their neighbors.
-// badPixels is a list of (x, y) coordinates.
-func InterpolateBadPixels(img *gocv.Mat, badPixels [][2]int) {
-	for _, bp := range badPixels {
-		x, y := bp[0], bp[1]
-		if x <= 0 || y <= 0 || x >= img.Cols()-1 || y >= img.Rows()-1 {
-			continue
-		}
-		// 3x3 median filter on the bad pixel location
-		roi := img.Region(image.Rect(x-1, y-1, x+2, y+2))
-		median := gocv.NewMat()
-		gocv.MedianBlur(roi, &median, 3)
-		// Copy center pixel back
-		centerVal := median.GetVecbAt(1, 1)
-		img.SetUCharAt(y, x*3, centerVal[0])
-		img.SetUCharAt(y, x*3+1, centerVal[1])
-		img.SetUCharAt(y, x*3+2, centerVal[2])
-		roi.Close()
-		median.Close()
-	}
-}
-

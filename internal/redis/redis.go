@@ -30,7 +30,6 @@ func Init() {
 
 // Stream names
 const (
-	StreamFramesRaw        = "frames.raw"
 	StreamFramesProcessing = "frames.processing"
 	StreamFramesDetection  = "frames.detection"
 	StreamFramesOverlay    = "frames.overlay"
@@ -51,7 +50,7 @@ const (
 )
 
 // PublishToStream adds a message to a Redis Stream
-func PublishToStream(ctx context.Context, stream string, values map[string]interface{}) (string, error) {
+func PublishToStream(ctx context.Context, stream string, values map[string]any) (string, error) {
 	return Client.XAdd(ctx, &redis.XAddArgs{
 		Stream: stream,
 		Values: values,
@@ -59,7 +58,7 @@ func PublishToStream(ctx context.Context, stream string, values map[string]inter
 }
 
 // Publish sends a message to a pub/sub channel
-func Publish(ctx context.Context, channel string, message interface{}) error {
+func Publish(ctx context.Context, channel string, message any) error {
 	return Client.Publish(ctx, channel, message).Err()
 }
 
