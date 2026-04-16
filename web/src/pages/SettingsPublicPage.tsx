@@ -24,11 +24,16 @@ export function SettingsPublicPage() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/public", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { name, showSQM, showCloud, showSensors } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/public", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { name, showSQM, showCloud, showSensors } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

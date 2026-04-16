@@ -11,6 +11,11 @@ export function SettingsStorage() {
   const [s3Region, setS3Region] = useState("");
   const [s3AccessKey, setS3AccessKey] = useState("");
   const [s3SecretKey, setS3SecretKey] = useState("");
+  const [smbServer, setSmbServer] = useState("");
+  const [smbShare, setSmbShare] = useState("");
+  const [smbUsername, setSmbUsername] = useState("");
+  const [smbPassword, setSmbPassword] = useState("");
+  const [smbMountPath, setSmbMountPath] = useState("");
   const [saving, setSaving] = useState(false);
   const initialized = useRef(false);
 
@@ -25,20 +30,31 @@ export function SettingsStorage() {
       setS3Region(st.s3?.region ?? "");
       setS3AccessKey(st.s3?.accessKey ?? "");
       setS3SecretKey(st.s3?.secretKey ?? "");
+      setSmbServer(st.smb?.server ?? "");
+      setSmbShare(st.smb?.share ?? "");
+      setSmbUsername(st.smb?.username ?? "");
+      setSmbPassword(st.smb?.password ?? "");
+      setSmbMountPath(st.smb?.mountPath ?? "");
     }
   }, [configData]);
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/storage.remote", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: {
-        enabled, type: storageType,
-        nfs: { mountPoint: nfsMountPoint },
-        s3: { bucket: s3Bucket, region: s3Region, accessKey: s3AccessKey, secretKey: s3SecretKey },
-      }}),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/storage.remote", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: {
+          enabled, type: storageType,
+          nfs: { mountPoint: nfsMountPoint },
+          s3: { bucket: s3Bucket, region: s3Region, accessKey: s3AccessKey, secretKey: s3SecretKey },
+          smb: { server: smbServer, share: smbShare, username: smbUsername, password: smbPassword, mountPath: smbMountPath },
+        }}),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -55,6 +71,15 @@ export function SettingsStorage() {
         {storageType === "nfs" && (
           <TextInput label="NFS Mount Point" value={nfsMountPoint} onChange={e => setNfsMountPoint(e.currentTarget.value)}
             placeholder="/mnt/nas/novasky" disabled={!enabled} />
+        )}
+        {storageType === "smb" && (
+          <Stack gap="sm">
+            <TextInput label="Server" value={smbServer} onChange={e => setSmbServer(e.currentTarget.value)} placeholder="192.168.1.100" disabled={!enabled} />
+            <TextInput label="Share" value={smbShare} onChange={e => setSmbShare(e.currentTarget.value)} placeholder="novasky" disabled={!enabled} />
+            <TextInput label="Username" value={smbUsername} onChange={e => setSmbUsername(e.currentTarget.value)} disabled={!enabled} />
+            <PasswordInput label="Password" value={smbPassword} onChange={e => setSmbPassword(e.currentTarget.value)} disabled={!enabled} />
+            <TextInput label="Mount Path" value={smbMountPath} onChange={e => setSmbMountPath(e.currentTarget.value)} placeholder="/mnt/smb/novasky" disabled={!enabled} />
+          </Stack>
         )}
         {storageType === "s3" && (
           <Stack gap="sm">

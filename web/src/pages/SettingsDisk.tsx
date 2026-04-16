@@ -23,14 +23,19 @@ export function SettingsDisk() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/disk", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { retainDays, minFreeGB } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/disk", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { retainDays, minFreeGB } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const usedPct = disk ? (disk.usedGB / disk.totalGB * 100) : 0;
+  const usedPct = disk && disk.totalGB > 0 ? (disk.usedGB / disk.totalGB) * 100 : 0;
 
   return (
     <Stack gap="md">
@@ -39,9 +44,9 @@ export function SettingsDisk() {
         <Text fw={500} mb="sm">Disk Usage</Text>
         <Progress value={usedPct} color={usedPct > 90 ? "red" : usedPct > 70 ? "yellow" : "green"} size="xl" mb="sm" />
         <Group justify="space-between">
-          <Text size="sm">{disk?.usedGB.toFixed(1)} GB used</Text>
-          <Text size="sm">{disk?.freeGB.toFixed(1)} GB free</Text>
-          <Text size="sm">{disk?.totalGB.toFixed(1)} GB total</Text>
+          <Text size="sm">{disk?.usedGB?.toFixed(1) ?? "—"} GB used</Text>
+          <Text size="sm">{disk?.freeGB?.toFixed(1) ?? "—"} GB free</Text>
+          <Text size="sm">{disk?.totalGB?.toFixed(1) ?? "—"} GB total</Text>
         </Group>
         <Text size="xs" c="dimmed" mt="xs">Path: {disk?.path}</Text>
       </Card>

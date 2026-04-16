@@ -26,11 +26,16 @@ export function SettingsGPIO() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/gpio", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { i2cEnabled, rainPin, dewHeater: { enabled: dewEnabled, pin: dewPin, deltaTemp: dewDelta } } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/gpio", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { i2cEnabled, rainPin, dewHeater: { enabled: dewEnabled, pin: dewPin, deltaTemp: dewDelta } } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

@@ -14,7 +14,7 @@ export function ProcessingTuner() {
 
   const frameId = status?.frame?.id;
 
-  async function preview() {
+  function preview() {
     if (!frameId) return;
     setProcessing(true);
     const params = new URLSearchParams({
@@ -23,14 +23,17 @@ export function ProcessingTuner() {
       skyglowAggressiveness: String(skyglowAggr),
     });
     setPreviewUrl(`/api/process-preview?${params}&t=${Date.now()}`);
-    setProcessing(false);
   }
 
   async function saveToProfile(profile: string) {
-    await fetch(`/api/config/imaging.${profile}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { stretch, scnr: scnrEnabled, noiseFilter, noiseKernel, skyglowAggressiveness: skyglowAggr } }),
-    });
+    try {
+      await fetch(`/api/config/imaging.${profile}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { stretch, scnr: scnrEnabled, noiseFilter, noiseKernel, skyglowAggressiveness: skyglowAggr } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    }
   }
 
   return (
@@ -71,6 +74,7 @@ export function ProcessingTuner() {
         <Text fw={500} mb="sm">Preview</Text>
         {previewUrl ? (
           <img src={previewUrl} alt="Processing preview"
+            onLoad={() => setProcessing(false)} onError={() => setProcessing(false)}
             style={{ width: "100%", maxHeight: 600, objectFit: "contain", background: "#000", borderRadius: 8 }} />
         ) : (
           <Text c="dimmed" ta="center" py="xl">Click Preview to see processing result</Text>

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Stack, Title, Card, Text, Button, Group, Badge, NumberInput, SimpleGrid } from "@mantine/core";
+import { useState, useMemo } from "react";
+import { Stack, Title, Card, Text, Button, Group, Badge, SimpleGrid } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -11,20 +11,28 @@ export function FocusMode() {
   const { data: starsData } = useApi<StarsData>("/api/stars", 3000);
   const { data: status } = useApi<any>("/api/status", 3000);
   const [loading, setLoading] = useState(false);
-  const [exposure, setExposure] = useState(500);
-  const [gain, setGain] = useState(200);
 
-  const rawData = starsData?.data;
-  const stars = Array.isArray(rawData) ? rawData : (typeof rawData === "string" ? JSON.parse(rawData) : []);
-  const avgHFR = stars.length > 0 ? (stars.reduce((s: number, st: any) => s + st.hfr, 0) / stars.length).toFixed(2) : "—";
-  const avgFWHM = stars.length > 0 ? (stars.reduce((s: number, st: any) => s + st.fwhm, 0) / stars.length).toFixed(2) : "—";
-  const peakBrightness = stars.length > 0 ? Math.max(...stars.map((s: any) => s.brightness)).toFixed(0) : "—";
+  const { stars, avgHFR, avgFWHM, peakBrightness } = useMemo(() => {
+    const rawData = starsData?.data;
+    const s = Array.isArray(rawData) ? rawData : (typeof rawData === "string" ? JSON.parse(rawData) : []);
+    return {
+      stars: s,
+      avgHFR: s.length > 0 ? (s.reduce((sum: number, st: any) => sum + st.hfr, 0) / s.length).toFixed(2) : "—",
+      avgFWHM: s.length > 0 ? (s.reduce((sum: number, st: any) => sum + st.fwhm, 0) / s.length).toFixed(2) : "—",
+      peakBrightness: s.length > 0 ? Math.max(...s.map((st: any) => st.brightness)).toFixed(0) : "—",
+    };
+  }, [starsData]);
 
   async function toggle() {
     setLoading(true);
-    const endpoint = focusData?.focusMode ? "/api/focus/stop" : "/api/focus/start";
-    await fetch(endpoint, { method: "POST" });
-    setLoading(false);
+    try {
+      const endpoint = focusData?.focusMode ? "/api/focus/stop" : "/api/focus/start";
+      await fetch(endpoint, { method: "POST" });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -38,11 +46,6 @@ export function FocusMode() {
           </Badge>
         </Group>
 
-        <Group grow mb="md">
-          <NumberInput label="Exposure (ms)" value={exposure} onChange={v => setExposure(Number(v))} min={1} max={30000} />
-          <NumberInput label="Gain" value={gain} onChange={v => setGain(Number(v))} min={0} max={600} />
-        </Group>
-
         <Button onClick={toggle} loading={loading} fullWidth color={focusData?.focusMode ? "red" : "green"} mb="md">
           {focusData?.focusMode ? "Stop Focus Mode" : "Start Focus Mode"}
         </Button>
@@ -50,7 +53,7 @@ export function FocusMode() {
 
       <Card shadow="sm" padding="lg" withBorder>
         <Text fw={500} mb="sm">Focus Metrics</Text>
-        <SimpleGrid cols={4}>
+        <SimpleGrid cols={{ base: 2, md: 4 }}>
           <div><Text size="xs" c="dimmed">Stars Detected</Text><Text size="xl" fw={700}>{stars.length}</Text></div>
           <div><Text size="xs" c="dimmed">Avg HFR</Text><Text size="xl" fw={700}>{avgHFR}</Text></div>
           <div><Text size="xs" c="dimmed">Avg FWHM</Text><Text size="xl" fw={700}>{avgFWHM}</Text></div>
@@ -61,7 +64,7 @@ export function FocusMode() {
       {status?.frame?.id && status?.frame?.jpegPath && (
         <Card shadow="sm" padding="lg" withBorder>
           <Text fw={500} mb="sm">Live Frame</Text>
-          <img src={`/api/frames/${status.frame.id}/jpeg?t=${Date.now()}`} alt="Focus frame"
+          <img src={`/api/frames/${status.frame.id}/jpeg`} alt="Focus frame"
             style={{ width: "100%", maxHeight: 600, objectFit: "contain", background: "#000", borderRadius: 8 }} />
         </Card>
       )}

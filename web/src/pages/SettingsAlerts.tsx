@@ -20,11 +20,16 @@ export function SettingsAlerts() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/alerts", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { webhookUrl, webhookEnabled } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/alerts", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { webhookUrl, webhookEnabled } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

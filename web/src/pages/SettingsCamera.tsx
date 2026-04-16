@@ -55,12 +55,18 @@ export function SettingsCamera() {
 
   async function save() {
     setSaving(true);
-    await Promise.all([
-      fetch("/api/config/camera.driver", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: driver }) }),
-      fetch("/api/config/camera.device", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: device }) }),
-      fetch("/api/config/location", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { latitude, longitude, elevation } }) }),
-      fetch("/api/config/camera.optics", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { focalLength, focalRatio } }) }),
-    ]); setSaving(false);
+    try {
+      await Promise.all([
+        fetch("/api/config/camera.driver", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: driver }) }),
+        fetch("/api/config/camera.device", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: device }) }),
+        fetch("/api/config/location", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { latitude, longitude, elevation } }) }),
+        fetch("/api/config/camera.optics", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { focalLength, focalRatio } }) }),
+      ]);
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const DRIVERS = [

@@ -38,18 +38,23 @@ export function SettingsDetection() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/detection", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        value: {
-          cloudEnabled, sqmEnabled, starsEnabled, starMinBrightness,
-          meteorsEnabled, planesEnabled, planesUrl, satellitesEnabled,
-          constellationsEnabled, planetsEnabled, cloudThreshold,
-        },
-      }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/detection", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: {
+            cloudEnabled, sqmEnabled, starsEnabled, starMinBrightness,
+            meteorsEnabled, planesEnabled, planesUrl, satellitesEnabled,
+            constellationsEnabled, planetsEnabled, cloudThreshold,
+          },
+        }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

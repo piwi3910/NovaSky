@@ -72,24 +72,32 @@ export function OverlayEditor() {
   const toggleLayer = async (key: string) => {
     const updated = { ...layerConfig, [key]: !layerConfig[key] };
     setLayerConfig(updated);
-    await fetch("/api/overlay/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updated),
-    });
+    try {
+      await fetch("/api/overlay/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    }
   };
 
   const createLayout = async () => {
     if (!newName.trim()) return;
-    const res = await fetch("/api/overlay/layouts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, layout: [] }),
-    });
-    const layout = await res.json();
-    setLayouts([layout, ...layouts]);
-    setNewName("");
-    selectLayout(layout);
+    try {
+      const res = await fetch("/api/overlay/layouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName, layout: [] }),
+      });
+      const layout = await res.json();
+      setLayouts([layout, ...layouts]);
+      setNewName("");
+      selectLayout(layout);
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    }
   };
 
   const selectLayout = (layout: OverlayLayout) => {
@@ -136,24 +144,32 @@ export function OverlayEditor() {
   };
 
   const activateLayout = async (id: string) => {
-    await fetch(`/api/overlay/layouts/${id}/activate`, { method: "PUT" });
-    await loadLayouts();
+    try {
+      await fetch(`/api/overlay/layouts/${id}/activate`, { method: "PUT" });
+      await loadLayouts();
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    }
   };
 
   const deleteLayout = async (id: string) => {
-    await fetch(`/api/overlay/layouts/${id}`, { method: "DELETE" });
-    if (selected?.id === id) {
-      setSelected(null);
-      setElements([]);
+    try {
+      await fetch(`/api/overlay/layouts/${id}`, { method: "DELETE" });
+      if (selected?.id === id) {
+        setSelected(null);
+        setElements([]);
+      }
+      await loadLayouts();
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
     }
-    await loadLayouts();
   };
 
   return (
-    <Stack>
-      <Title order={3}>Overlay Editor</Title>
+    <Stack gap="md">
+      <Title order={2}>Overlay Editor</Title>
 
-      <Card withBorder>
+      <Card shadow="sm" padding="lg" withBorder>
         <Title order={5} mb="sm">Layer Visibility</Title>
         <Group>
           {Object.entries(layerConfig).map(([key, enabled]) => (
@@ -167,7 +183,7 @@ export function OverlayEditor() {
         </Group>
       </Card>
 
-      <Card withBorder>
+      <Card shadow="sm" padding="lg" withBorder>
         <Title order={5} mb="sm">Overlay Layouts</Title>
         <Group mb="md">
           <TextInput
@@ -215,7 +231,7 @@ export function OverlayEditor() {
       </Card>
 
       {selected && (
-        <Card withBorder>
+        <Card shadow="sm" padding="lg" withBorder>
           <Group justify="space-between" mb="md">
             <Title order={5}>Edit: {selected.name}</Title>
             <Button onClick={saveLayout} loading={saving}>Save Layout</Button>

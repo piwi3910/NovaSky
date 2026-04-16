@@ -24,11 +24,16 @@ export function SettingsExport() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/export", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { dir: exportDir, saveFits, saveJpeg, saveOverlay } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/export", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { dir: exportDir, saveFits, saveJpeg, saveOverlay } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

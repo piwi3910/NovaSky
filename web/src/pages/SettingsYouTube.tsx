@@ -26,11 +26,16 @@ export function SettingsYouTube() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/youtube", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { enabled, clientId, clientSecret, refreshToken, privacy } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/youtube", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { enabled, clientId, clientSecret, refreshToken, privacy } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

@@ -106,7 +106,7 @@ export function FrameMasking() {
       draw();
     };
     img.src = `/api/frames/${frameId}/jpeg`;
-  }, [status]);
+  }, [status, draw]);
 
   // Redraw when mask params change
   useEffect(() => { draw(); }, [draw]);
@@ -158,12 +158,17 @@ export function FrameMasking() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/imaging.mask", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { centerX, centerY, radius, enabled } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/imaging.mask", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { centerX, centerY, radius, enabled } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -189,6 +194,9 @@ export function FrameMasking() {
             onMouseMove={handlePointerMove}
             onMouseUp={handlePointerUp}
             onMouseLeave={handlePointerUp}
+            onTouchStart={(e) => { e.preventDefault(); handlePointerDown(e as any); }}
+            onTouchMove={(e) => { e.preventDefault(); handlePointerMove(e as any); }}
+            onTouchEnd={handlePointerUp}
           />
         </div>
       </Card>

@@ -33,11 +33,17 @@ export function SettingsImaging() {
 
   async function save() {
     setSaving(true);
-    await Promise.all([
-      fetch("/api/config/imaging.day", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: dayProfile }) }),
-      fetch("/api/config/imaging.night", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: nightProfile }) }),
-      fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle, transitionSpeed } }) }),
-    ]); setSaving(false);
+    try {
+      await Promise.all([
+        fetch("/api/config/imaging.day", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: dayProfile }) }),
+        fetch("/api/config/imaging.night", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: nightProfile }) }),
+        fetch("/api/config/imaging.twilight", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: { sunAltitude: twilightAngle, transitionSpeed } }) }),
+      ]);
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

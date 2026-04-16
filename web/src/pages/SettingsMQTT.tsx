@@ -24,11 +24,16 @@ export function SettingsMQTT() {
 
   async function save() {
     setSaving(true);
-    await fetch("/api/config/mqtt", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: { broker, username, password, enabled } }),
-    });
-    setSaving(false);
+    try {
+      await fetch("/api/config/mqtt", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: { broker, username, password, enabled } }),
+      });
+    } catch (e) {
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
