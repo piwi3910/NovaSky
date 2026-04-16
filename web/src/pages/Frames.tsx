@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Stack, Title, Table, Pagination, Group, Text } from "@mantine/core";
+import { Stack, Title, Table, Pagination, Group, Text, Loader } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
 import { formatDate } from "../utils/format";
 
@@ -8,7 +8,7 @@ interface FramesResponse { frames: Array<{ id: string; capturedAt: string; expos
 export function Frames() {
   const [page, setPage] = useState(1);
   const limit = 20;
-  const { data } = useApi<FramesResponse>(`/api/frames?limit=${limit}&offset=${(page - 1) * limit}`, 10000);
+  const { data, loading } = useApi<FramesResponse>(`/api/frames?limit=${limit}&offset=${(page - 1) * limit}`, 10000);
 
   return (
     <Stack gap="md">
@@ -26,6 +26,10 @@ export function Frames() {
           ))}
         </Table.Tbody>
       </Table>
+      {loading && <Group justify="center" py="xl"><Loader /></Group>}
+      {(!data?.frames || data.frames.length === 0) && !loading && (
+        <Text c="dimmed" ta="center" py="xl">No frames captured yet</Text>
+      )}
       <Group justify="center"><Pagination value={page} onChange={setPage} total={Math.max(page, (data?.frames?.length ?? 0) === limit ? page + 1 : page)} /></Group>
     </Stack>
   );

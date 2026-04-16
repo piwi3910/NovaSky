@@ -1,4 +1,4 @@
-import { Stack, Title, Table, Badge } from "@mantine/core";
+import { Stack, Title, Table, Badge, Text, Group, Loader } from "@mantine/core";
 import { useApi } from "../hooks/useApi";
 import { formatDate } from "../utils/format";
 
@@ -6,7 +6,7 @@ interface HistoryResponse { history: Array<{ id: string; state: string; imagingQ
 const STATE_COLORS: Record<string, string> = { SAFE: "green", UNSAFE: "red", UNKNOWN: "yellow" };
 
 export function History() {
-  const { data } = useApi<HistoryResponse>("/api/safety-history?limit=100", 10000);
+  const { data, loading } = useApi<HistoryResponse>("/api/safety-history?limit=100", 10000);
   return (
     <Stack gap="md">
       <Title order={2}>Safety History</Title>
@@ -23,6 +23,10 @@ export function History() {
           ))}
         </Table.Tbody>
       </Table>
+      {loading && <Group justify="center" py="xl"><Loader /></Group>}
+      {(!data?.history || data.history.length === 0) && !loading && (
+        <Text c="dimmed" ta="center" py="xl">No analysis data yet</Text>
+      )}
     </Stack>
   );
 }

@@ -11,6 +11,11 @@ interface StatusResponse {
   frame: { id: string; capturedAt: string; exposureMs: number; jpegPath: string | null } | null;
 }
 
+function scalePoint(px: number, py: number, imgW: number, dispW: number) {
+  const scale = dispW / imgW;
+  return { x: px * scale, y: py * scale };
+}
+
 export function Dashboard() {
   const { data: status } = useApi<StatusResponse>("/api/status", 5000);
   const { data: cloudData } = useApi<Array<{time: string; value: number}>>("/api/charts/cloud-cover?hours=6", 30000);
@@ -43,10 +48,6 @@ export function Dashboard() {
   }, [rotDeg]);
 
   // Constellation/planet coords are already projected with northAngle — just scale
-  const scalePoint = useCallback((px: number, py: number, imgW: number, dispW: number) => {
-    const scale = dispW / imgW;
-    return { x: px * scale, y: py * scale };
-  }, []);
 
   const drawOverlay = useCallback(() => {
     const canvas = canvasRef.current;
@@ -133,9 +134,24 @@ export function Dashboard() {
         }
       }
     }
-  }, [overlayData, showOverlay, transformStarPoint, scalePoint]);
+  }, [overlayData, showOverlay, transformStarPoint]);
 
   useEffect(() => { drawOverlay(); }, [drawOverlay]);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    const observer = new ResizeObserver(() => drawOverlay());
+    observer.observe(img);
+    return () => observer.disconnect();
+  }, [drawOverlay]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [fullscreen]);
 
   return (
     <Stack gap="md">
@@ -148,7 +164,7 @@ export function Dashboard() {
             <Group gap="xs">
               <Badge color={autoExposure.mode === "day" ? "yellow" : "blue"} size="sm" variant="filled">{autoExposure.mode}</Badge>
               <Text size="xs" c="dimmed">
-                {autoExposure.currentExposureMs.toFixed(1)}ms | G{autoExposure.currentGain} | ADU {(autoExposure.lastMedianAdu / 655.35).toFixed(1)}% / {autoExposure.targetAdu}% | {autoExposure.phase}
+                <span style={{ fontFamily: "var(--ns-font-mono)" }}>{autoExposure.currentExposureMs.toFixed(1)}</span>ms | G<span style={{ fontFamily: "var(--ns-font-mono)" }}>{autoExposure.currentGain}</span> | ADU <span style={{ fontFamily: "var(--ns-font-mono)" }}>{(autoExposure.lastMedianAdu / 655.35).toFixed(1)}</span>% / <span style={{ fontFamily: "var(--ns-font-mono)" }}>{autoExposure.targetAdu}</span>% | {autoExposure.phase}
               </Text>
             </Group>
           )}
@@ -206,10 +222,10 @@ export function Dashboard() {
         {cloudData && cloudData.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={cloudData}>
-              <XAxis dataKey="time" tick={{ fontSize: 10 }} tickFormatter={t => new Date(t).toLocaleTimeString()} interval="preserveStartEnd" />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => `${v.toFixed(0)}%`} labelFormatter={t => new Date(t).toLocaleString()} />
-              <Line type="monotone" dataKey="value" stroke="#228be6" dot={false} strokeWidth={2} />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={t => new Date(t).toLocaleTimeString()} interval="preserveStartEnd" />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#94A3B8" }} />
+              <Tooltip formatter={(v: number) => `${v.toFixed(0)}%`} labelFormatter={t => new Date(t).toLocaleString()} contentStyle={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6 }} labelStyle={{ color: "#94A3B8" }} />
+              <Line type="monotone" dataKey="value" stroke="#6366F1" dot={false} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         ) : (
@@ -222,16 +238,18 @@ export function Dashboard() {
         {exposureData && exposureData.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={exposureData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-              <XAxis dataKey="time" tick={{ fontSize: 10 }} tickFormatter={t => new Date(t).toLocaleTimeString()} interval="preserveStartEnd" />
-              <YAxis yAxisId="left" tick={{ fontSize: 10 }} label={{ value: "Exposure (ms)", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} label={{ value: "Gain", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={t => new Date(t).toLocaleTimeString()} interval="preserveStartEnd" />
+              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "Exposure (ms)", angle: -90, position: "insideLeft", style: { fontSize: 10 } }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "#94A3B8" }} label={{ value: "Gain", angle: 90, position: "insideRight", style: { fontSize: 10 } }} />
               <Tooltip
                 formatter={(v: number, name: string) => [name === "exposure" ? `${v.toFixed(1)} ms` : `${v}`, name === "exposure" ? "Exposure" : "Gain"]}
                 labelFormatter={t => new Date(t).toLocaleString()}
+                contentStyle={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6 }}
+                labelStyle={{ color: "#94A3B8" }}
               />
-              <Line yAxisId="left" type="monotone" dataKey="exposure" stroke="#fab005" dot={false} strokeWidth={2} name="exposure" />
-              <Line yAxisId="right" type="monotone" dataKey="gain" stroke="#40c057" dot={false} strokeWidth={2} name="gain" />
+              <Line yAxisId="left" type="monotone" dataKey="exposure" stroke="#F59E0B" dot={false} strokeWidth={2} name="exposure" />
+              <Line yAxisId="right" type="monotone" dataKey="gain" stroke="#14B8A6" dot={false} strokeWidth={2} name="gain" />
             </LineChart>
           </ResponsiveContainer>
         ) : (
