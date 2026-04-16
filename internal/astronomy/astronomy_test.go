@@ -150,9 +150,9 @@ func TestCalculateSunTimes(t *testing.T) {
 		t.Errorf("astronomical dawn (%v) should be before nautical dawn (%v)", times.AstronomicalDawn, times.NauticalDawn)
 	}
 
-	// Sunrise should be roughly around 3:30-5:30 UTC for Brussels in June
-	if times.Sunrise.Hour() < 3 || times.Sunrise.Hour() > 6 {
-		t.Errorf("sunrise hour should be 3-6 UTC for Brussels in June, got %d", times.Sunrise.Hour())
+	// Sunrise at equinox in Dubai should be around 2:00-3:00 UTC (6:00-7:00 local UTC+4)
+	if times.Sunrise.Hour() < 1 || times.Sunrise.Hour() > 4 {
+		t.Errorf("sunrise hour should be 1-4 UTC for Dubai at equinox, got %d", times.Sunrise.Hour())
 	}
 }
 
